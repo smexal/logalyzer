@@ -48,6 +48,10 @@ Stored entries stay as they were read; changed fields or rules apply to future i
 
 Deleting individual data is not possible; «Delete log type» in the editor removes the type with all its entries.
 
+## Filters
+
+Range (date with optional time, or a quick range: last 24 hours / 7 days / 30 days), field filters, search, state and highlight filter are kept per log type in the browser (localStorage) and restored after a reload. A quick range is recalculated relative to the current time. «Reset filters» clears them.
+
 ## Findings
 
 Findings are detected automatically (open outages, simultaneous outages, long and repeated outages, short interruptions, restarts, spikes, outliers). Click a finding to zoom to it; ✓ marks it as read. Read findings are stored per log type and listed in the «Read» tab, from where they can be shown again. A finding is recognised by its tag and title: if the title changes (e.g. a count after a new import), it counts as new.

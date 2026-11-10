@@ -92,6 +92,8 @@ main { padding: 16px max(16px, 3vw) 48px; display: flex; flex-direction: column;
   font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px;
   background: var(--panel); color: var(--fg); min-width: 0;
 }
+/* Same height for all filter controls (date/time inputs are taller by default), so the labels line up */
+.filterbar .field input, .filterbar .field select { height: 30px; box-sizing: border-box; }
 .filterinfo { margin: -8px 0 0; color: var(--muted); font-size: 12px; min-height: 1em; }
 
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }

@@ -23,6 +23,7 @@
     logHl: '',           // '' | 'any' | colour: only highlighted rows in the entries table
     layout: { order: [] }, // column order of the entries table (stored on the server)
     preset: null,        // quick range { key, from } while it is active
+    filterType: '',      // log type the current filter belongs to
     findingsTab: 'open',
     filter: emptyFilter(),
     lanes: 'outage',
@@ -73,8 +74,47 @@
     S.read =await api('GET', `/api/t/${enc(id)}/read`).catch(() => []);
     setNotes(await api('GET', `/api/t/${enc(id)}/notes`).catch(() => []));
     recompute();
-    if (!keepFilter) { S.filter = emptyFilter(); S.logStatus = ''; S.logHl = ''; S.sort = { key: 'resolution', asc: true }; }
+    if (!keepFilter || S.filterType !== id) {
+      S.sort = { key: 'resolution', asc: true };
+      if (!restoreFilter(id)) { S.filter = emptyFilter(); S.logStatus = ''; S.logHl = ''; S.preset = null; }
+    }
+    S.filterType = id; // the current filter belongs to this type (only then is it stored)
     render();
+  }
+
+  // ---------- Filter kept in the browser (per log type), so it survives a reload ----------
+  const FILTER_KEY = (type) => 'logalyzer.filter.' + type;
+  const PRESET_HOURS = { '24h': 24, '7d': 7 * 24, '30d': 30 * 24 };
+  /** Start of a quick range, relative to now. */
+  const presetFrom = (key) => isoLocal(new Date(Date.now() - PRESET_HOURS[key] * 3600000));
+  function storeFilter() {
+    if (!S.type || S.filterType !== S.type) return;
+    const f = S.filter;
+    const preset = S.preset && f.from === S.preset.from && !f.to ? S.preset.key : '';
+    try {
+      localStorage.setItem(FILTER_KEY(S.type), JSON.stringify({
+        from: preset ? '' : f.from, to: f.to, q: f.q, fields: f.fields, preset, logStatus: S.logStatus, logHl: S.logHl
+      }));
+    } catch (e) { /* storage not available: the filter is simply not kept */ }
+  }
+  function restoreFilter(type) {
+    let v;
+    try { v = JSON.parse(localStorage.getItem(FILTER_KEY(type)) || 'null'); } catch (e) { v = null; }
+    if (!v || typeof v !== 'object') return false;
+    const str = (x) => (typeof x === 'string' ? x : '');
+    const fields = {};
+    const schema = S.types.find((t) => t.id === type);
+    // Only fields that still exist in the log type
+    for (const [k, val] of Object.entries(v.fields && typeof v.fields === 'object' ? v.fields : {})) {
+      if (typeof val === 'string' && (schema.fields || []).some((x) => x.name === k)) fields[k] = val;
+    }
+    S.filter = { from: str(v.from), to: str(v.to), q: str(v.q), fields };
+    S.preset = null;
+    // A quick range is recalculated relative to now, so "last 7 days" stays the last 7 days
+    if (PRESET_HOURS[v.preset]) { S.preset = { key: v.preset, from: presetFrom(v.preset) }; S.filter.from = S.preset.from; S.filter.to = ''; }
+    S.logStatus = str(v.logStatus);
+    S.logHl = ['', 'any', 'yellow', 'red', 'green', 'blue'].includes(v.logHl) ? v.logHl : '';
+    return true;
   }
   function recompute() {
     S.outages = A.outages(S.events, S.schema);
@@ -222,6 +262,7 @@
   function render() {
     const sc = S.schema;
     const has = !!sc && S.events.length > 0;
+    storeFilter();
     $('#welcome').hidden = has;
     $('#content').hidden = !has;
     $('#sources-info').textContent = has ? `${S.events.length} entries · ${S.sources.map((s) => s.name).join(', ') || 'stored data'}` : '';
@@ -956,10 +997,9 @@
     };
     for (const id of ['#f-from', '#f-from-time', '#f-to', '#f-to-time']) $(id).addEventListener('change', readRange);
     $('#f-range').addEventListener('change', (e) => {
-      const hours = { '24h': 24, '7d': 7 * 24, '30d': 30 * 24 }[e.target.value];
-      if (!hours) { S.preset = null; S.filter.from = ''; S.filter.to = ''; render(); return; }
+      if (!PRESET_HOURS[e.target.value]) { S.preset = null; S.filter.from = ''; S.filter.to = ''; render(); return; }
       // Relative to now: from (now - period) open-ended
-      const from = isoLocal(new Date(Date.now() - hours * 3600000));
+      const from = presetFrom(e.target.value);
       S.preset = { key: e.target.value, from };
       S.filter.from = from;
       S.filter.to = '';
