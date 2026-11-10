@@ -1,0 +1,72 @@
+{
+  "id": "monitoring",
+  "name": "Server monitoring",
+  "description": "Example of a CSV export: checks per host and service with state and response time.",
+  "format": {
+    "type": "csv",
+    "delimiter": "auto"
+  },
+  "fields": [
+    {
+      "name": "time",
+      "label": "Timestamp",
+      "type": "time",
+      "source": "Timestamp"
+    },
+    {
+      "name": "host",
+      "label": "Host",
+      "type": "category",
+      "source": "Host",
+      "filter": true,
+      "chart": true,
+      "table": true
+    },
+    {
+      "name": "service",
+      "label": "Service",
+      "type": "category",
+      "source": "Service",
+      "filter": true,
+      "chart": true,
+      "table": true
+    },
+    {
+      "name": "state",
+      "label": "State",
+      "type": "category",
+      "source": "State",
+      "filter": true,
+      "table": true
+    },
+    {
+      "name": "response_ms",
+      "label": "Response time (ms)",
+      "type": "number",
+      "source": "Response ms",
+      "table": true
+    },
+    {
+      "name": "message",
+      "label": "Message",
+      "type": "text",
+      "source": "Message",
+      "table": true
+    }
+  ],
+  "state": {
+    "field": "state",
+    "down": [
+      "CRITICAL"
+    ],
+    "up": [
+      "OK"
+    ],
+    "keys": [
+      "host",
+      "service"
+    ],
+    "label": "{host} / {service}",
+    "group": "host"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "id": "network",
+  "name": "Network events",
+  "description": "Synthetic text log for tests: link, VPN and user events per host.",
+  "format": {
+    "type": "regex",
+    "pattern": "^(?<time>\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}(?::\\d{2})?)\\s+(?<host>\\S+)\\s+(?<message>.*?)\\s*$"
+  },
+  "fields": [
+    { "name": "time", "label": "Time", "type": "time" },
+    { "name": "host", "label": "Host", "type": "category", "filter": true, "chart": true },
+    { "name": "component", "label": "Component", "type": "category", "filter": true, "chart": true, "table": true },
+    { "name": "status", "label": "Status", "type": "category", "filter": true, "table": true },
+    { "name": "object", "label": "Object", "type": "text", "table": true },
+    { "name": "user", "label": "User", "type": "category" },
+    { "name": "message", "label": "Message", "type": "text", "table": true }
+  ],
+  "rules": [
+    { "field": "message", "pattern": "^link (down|up) (\\S+)", "set": { "component": "Link", "status": "$1", "object": "{host} $2" } },
+    { "field": "message", "pattern": "^vpn (lost|restored) user (\\w+)", "set": { "component": "VPN", "status": "$1", "object": "VPN $2", "user": "$2" } },
+    { "field": "message", "pattern": "^user (\\w+) not answering", "set": { "component": "Unreachable", "status": "Notice", "object": "User $1", "user": "$1" } },
+    {
+      "set": {
+        "component": "Other",
+        "status": "{message}",
+        "object": { "template": "{message}", "replace": [["\\b(failed|down|lost)\\b", "", "gi"], ["\\s+", " ", "g"]], "fallback": "{message}" }
+      }
+    }
+  ],
+  "mappings": {
+    "status": {
+      "values": [
+        { "pattern": "\\b(down|lost|failed)\\b", "value": "Down" },
+        { "pattern": "\\b(up|restored)\\b", "value": "Restored" }
+      ],
+      "fallback": "Notice"
+    }
+  },
+  "state": { "field": "status", "down": ["Down"], "up": ["Restored"], "keys": ["host", "object"], "label": "{object}", "group": "component", "related": "user" }
+}

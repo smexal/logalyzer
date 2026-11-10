@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logalyzer</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <h1>Logalyzer</h1>
+    <select id="type" class="type-select" aria-label="Log type"></select>
+    <span class="brand-sub" id="sources-info"></span>
+  </div>
+  <div class="actions">
+    <button class="btn primary" id="btn-import" type="button">Import</button>
+    <div class="menu">
+      <button class="btn" id="btn-export" type="button" aria-haspopup="true" aria-expanded="false">Export</button>
+      <div class="menu-list" id="export-menu" hidden>
+        <button type="button" data-export="events">Entries as CSV (current filters)</button>
+        <button type="button" data-export="all">All entries as CSV</button>
+        <button type="button" data-export="outages" id="exp-outages">Outages as CSV</button>
+      </div>
+    </div>
+    <button class="btn" id="btn-types" type="button">Log types</button>
+  </div>
+</header>
+
+<main id="app">
+  <!-- ================= Dashboard ================= -->
+  <div id="dashboard">
+    <section class="welcome" id="welcome" hidden>
+      <h2 id="w-title">No data yet</h2>
+      <p id="w-text"></p>
+      <div class="welcome-actions">
+        <button class="btn primary" id="btn-import2" type="button">Import log</button>
+        <button class="btn" id="btn-types2" type="button">Edit log type</button>
+      </div>
+    </section>
+
+    <div id="content" hidden>
+      <section class="filterbar" aria-label="Filter">
+        <div class="field"><label for="f-from">From</label><input type="datetime-local" id="f-from"></div>
+        <div class="field"><label for="f-to">To</label><input type="datetime-local" id="f-to"></div>
+        <div class="filterbar-fields" id="f-fields"></div>
+        <div class="field grow"><label for="f-search">Search</label><input type="search" id="f-search" placeholder="Text in all fields …"></div>
+        <button class="btn ghost" id="f-reset" type="button">Reset filters</button>
+      </section>
+      <p class="filterinfo" id="filterinfo"></p>
+
+      <section class="kpis" id="kpis"></section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Findings</h2>
+          <div class="tabs" role="tablist" aria-label="Findings">
+            <button type="button" class="tab" role="tab" id="fd-tab-open" aria-controls="findings" aria-selected="true">Open</button>
+            <button type="button" class="tab" role="tab" id="fd-tab-read" aria-controls="findings-read" aria-selected="false">Read</button>
+          </div>
+          <p class="hint" id="fd-hint">Detected automatically. Click a finding to zoom and filter the view, ✓ marks it as read.</p>
+        </div>
+        <ol class="findings" id="findings" role="tabpanel" aria-labelledby="fd-tab-open"></ol>
+        <ol class="read-list" id="findings-read" role="tabpanel" aria-labelledby="fd-tab-read" hidden></ol>
+      </section>
+
+      <section class="card" id="timeline-card">
+        <div class="card-head">
+          <h2>Timeline per object</h2>
+          <div class="card-tools">
+            <select id="tl-day" aria-label="Choose day"></select>
+            <select id="tl-rows" aria-label="Rows">
+              <option value="outage">Only objects with outages or notices</option>
+              <option value="all">All objects</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint">Drag in the chart to zoom in. Red bars: down. Dashed: no recovery in the log. Click a name to filter the log.</p>
+        <div class="chart" id="ch-timeline"></div>
+        <div class="legend" id="tl-legend"></div>
+      </section>
+
+      <div class="grid3" id="charts"></div>
+
+      <section class="card" id="outages-card">
+        <div class="card-head">
+          <h2>Outages</h2>
+          <p class="hint" id="outages-hint"></p>
+        </div>
+        <div class="tablewrap"><table class="tbl" id="tbl-outages"><thead></thead><tbody></tbody></table></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Entries</h2>
+          <div class="card-tools">
+            <select id="log-status" aria-label="State"></select>
+            <span class="count" id="log-count"></span>
+          </div>
+        </div>
+        <div class="tablewrap tall"><table class="tbl" id="tbl-log"><thead></thead><tbody></tbody></table></div>
+      </section>
+
+      <details class="notes" id="notes">
+        <summary>How Logalyzer calculates</summary>
+        <ul>
+          <li>Every log type describes how lines are split and which fields exist. View, filters and charts follow these fields.</li>
+          <li>If a log type has a state, an outage starts with a «down» value and ends with the next «up» value of the same object. Another «down» value in between is marked as «repeated».</li>
+          <li>Within the same minute «down» comes before «up», because the line order within a minute is often wrong. Recoveries without a preceding outage belong to an outage before the log starts.</li>
+          <li>The data is stored in the local MongoDB and does not leave the computer. On import, entries that are already stored are skipped.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <!-- ================= Log type editor ================= -->
+  <section id="editor" hidden>
+    <div class="ed-layout">
+      <aside class="card ed-list">
+        <div class="card-head"><h2>Log types</h2></div>
+        <ul id="ed-types"></ul>
+        <button class="btn primary" id="ed-new" type="button">New log type</button>
+        <button class="btn ghost" id="ed-back" type="button">Back to analysis</button>
+      </aside>
+
+      <div class="ed-main">
+        <section class="card">
+          <div class="card-head"><h2 id="ed-title">Log type</h2></div>
+          <div class="ed-row">
+            <div class="field grow"><label for="ed-name">Name</label><input id="ed-name" placeholder="e.g. Firewall"></div>
+            <div class="field"><label for="ed-id">ID</label><input id="ed-id" placeholder="firewall" spellcheck="false"></div>
+          </div>
+          <div class="field"><label for="ed-description">Description</label><input id="ed-description" placeholder="Where does the log come from, what does a line look like?"></div>
+        </section>
+
+        <details class="card claude" id="ed-claude">
+          <summary><h2>Set up with Claude</h2><span class="count">Copy the prompt, paste the reply</span></summary>
+          <ol class="steps">
+            <li>Enter a name and a few sample lines (under 1.) – they are added to the prompt automatically.</li>
+            <li>Copy the prompt and send it to Claude. Claude asks if needed and finally returns the schema as JSON.</li>
+            <li>Paste Claude's reply (or just the JSON block) below and apply it, then check the preview and save.</li>
+          </ol>
+          <div class="prompt-box">
+            <div class="prompt-head"><span class="count" id="ed-prompt-info"></span><button class="btn primary" id="ed-prompt-copy" type="button">Copy prompt</button></div>
+            <textarea id="ed-prompt" rows="10" readonly spellcheck="false" class="mono-area"></textarea>
+          </div>
+          <div class="field"><label for="ed-reply">Reply from Claude</label>
+            <textarea id="ed-reply" rows="5" spellcheck="false" class="mono-area" placeholder="```json&#10;{ &quot;id&quot;: &quot;…&quot;, &quot;name&quot;: &quot;…&quot;, &quot;format&quot;: { … }, &quot;fields&quot;: [ … ] }&#10;```"></textarea>
+          </div>
+          <div class="ed-row"><button class="btn" id="ed-reply-ok" type="button">Apply schema</button><span class="hint" id="ed-reply-info"></span></div>
+        </details>
+
+        <section class="card">
+          <div class="card-head"><h2>1. Sample</h2>
+            <div class="card-tools">
+              <label class="btn" for="ed-file">Load file</label>
+              <input id="ed-file" type="file" accept=".csv,.tsv,.txt,.log,.json,.jsonl" hidden>
+              <button class="btn primary" id="ed-infer" type="button">Detect columns</button>
+            </div>
+          </div>
+          <p class="hint">Paste some lines of the log. For CSV with a header line or JSON lines, Logalyzer detects the columns itself. For text logs without columns choose the format «Text lines (regex)» below.</p>
+          <textarea id="ed-sample" rows="8" spellcheck="false" class="mono-area"></textarea>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>2. Format and columns</h2></div>
+          <div class="ed-row">
+            <div class="field"><label for="ed-kind">Format</label>
+              <select id="ed-kind">
+                <option value="csv">CSV / table with header line</option>
+                <option value="jsonl">JSON lines</option>
+                <option value="regex">Text lines (regex)</option>
+              </select>
+            </div>
+            <div class="field" id="ed-delim-f"><label for="ed-delim">Delimiter</label>
+              <select id="ed-delim"><option value="auto">automatic</option><option value=",">Comma</option><option value=";">Semicolon</option><option value="&#9;">Tab</option><option value="|">|</option></select>
+            </div>
+            <div class="field grow" id="ed-pattern-f"><label for="ed-pattern">Pattern per line (named groups = sources)</label><input id="ed-pattern" class="mono" spellcheck="false" placeholder="^(?<time>\S+ \S+)\s+(?<level>\w+)\s+(?<message>.*)$"></div>
+          </div>
+          <p class="hint">Tick = use the column. Exactly one field is called <code>time</code> and has the type Time. Fields without a source are filled by rules (below).</p>
+          <div class="tablewrap"><table class="tbl ed-fields" id="ed-fields">
+            <thead><tr><th title="Use">✓</th><th>Source</th><th>Field name</th><th>Label</th><th>Type</th><th>Time format</th><th title="Offer as filter">Filter</th><th title="Chart of the most frequent values">Chart</th><th title="Show in the table">Table</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <button class="btn" id="ed-field-new" type="button">Add field</button>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>3. State (optional)</h2>
+            <label class="check"><input type="checkbox" id="ed-st-on"> Analyse outages</label>
+          </div>
+          <p class="hint">For logs in which an object goes down and comes back (connection lost / restored, CRITICAL / OK …). This produces the timeline, the outage table and findings.</p>
+          <div id="ed-st" hidden>
+            <div class="ed-row">
+              <div class="field"><label for="ed-st-field">Field with the state</label><select id="ed-st-field"></select></div>
+              <div class="field"><label for="ed-st-group">Group by</label><select id="ed-st-group"></select></div>
+              <div class="field"><label for="ed-st-related">Related (e.g. user)</label><select id="ed-st-related"></select></div>
+            </div>
+            <div class="field"><label>Assign values</label><div class="values" id="ed-st-values"></div></div>
+            <div class="field"><label>Object identified by</label><div class="values" id="ed-st-keys"></div></div>
+            <div class="field"><label for="ed-st-label">Display name of the object</label><input id="ed-st-label" class="mono" placeholder="{host} / {service}"></div>
+          </div>
+        </section>
+
+        <details class="card ed-adv">
+          <summary><h2>4. Rules and mappings (JSON, advanced)</h2></summary>
+          <p class="hint">Rules derive further fields from a field (the first matching rule wins), mappings normalise values. See the README for the format. Claude can write these rules from a sample.</p>
+          <textarea id="ed-json" rows="12" spellcheck="false" class="mono-area"></textarea>
+        </details>
+
+        <section class="card">
+          <div class="card-head"><h2>Preview</h2><span class="count" id="ed-stat"></span></div>
+          <ul class="ed-errors" id="ed-errors"></ul>
+          <div class="tablewrap"><table class="tbl" id="ed-preview"><thead></thead><tbody></tbody></table></div>
+        </section>
+
+        <div class="ed-actions">
+          <button class="btn ghost danger" id="ed-delete" type="button">Delete log type</button>
+          <span class="spacer"></span>
+          <button class="btn" id="ed-save" type="button">Save</button>
+          <button class="btn primary" id="ed-save-import" type="button">Save and import sample</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg-import">
+  <form method="dialog" class="dlg">
+    <h2>Import log</h2>
+    <div class="ed-row">
+      <div class="field"><label for="imp-type">Log type</label><select id="imp-type"></select></div>
+      <label class="btn" for="file">Choose file …</label>
+      <input id="file" type="file" multiple hidden>
+    </div>
+    <p class="hint">Paste text (Ctrl+V also works directly in the window) or choose files or drag them into the window. «Detect automatically» picks the log type that most lines match. Entries that are already stored are not added again.</p>
+    <textarea id="raw" rows="14" spellcheck="false"></textarea>
+    <p class="preview" id="raw-preview"></p>
+    <p class="preview" id="raw-dupes"></p>
+    <details class="claude" id="imp-claude">
+      <summary>Unstructured text? Prompt for Claude: convert into CSV for <b id="imp-claude-type">…</b></summary>
+      <p class="hint">Copy the prompt and send it to Claude (the text above is included if it does not fit directly). Then paste Claude's CSV block above – Logalyzer recognises the columns by name. You choose the log type above.</p>
+      <div class="prompt-box">
+        <div class="prompt-head"><span class="count" id="imp-prompt-info"></span><button class="btn primary" id="imp-prompt-copy" type="button">Copy prompt</button></div>
+        <textarea id="imp-prompt" rows="9" readonly spellcheck="false" class="mono-area"></textarea>
+      </div>
+    </details>
+    <div class="dlg-actions">
+      <button class="btn ghost" value="cancel" type="submit">Cancel</button>
+      <button class="btn primary" id="raw-import" type="button">Import</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="/shared/schema.js"></script>
+<script src="/shared/analyze.js"></script>
+<script src="/shared/prompts.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+<script src="js/editor.js"></script>
+</body>
+</html>

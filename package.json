@@ -1,0 +1,19 @@
+{
+  "name": "logalyzer",
+  "version": "4.0.0",
+  "private": true,
+  "description": "Analyse logs of any kind by self-defined log types (schemas) – web UI with Node backend and MongoDB",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js",
+    "convert": "node tools/convert.js",
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "mongodb": "^6.22.0"
+  }
+}

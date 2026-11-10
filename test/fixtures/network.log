@@ -1,0 +1,18 @@
+2026-11-06 22:05  gw1  vpn lost user bob
+2026-11-06 22:00  fw1  power supply failed
+2026-11-05 12:01  sw3  link up eth9
+2026-11-05 12:00  sw3  link down eth9
+2026-11-04 12:01  sw3  link up eth9
+2026-11-04 12:00  sw3  link down eth9
+2026-11-03 12:01  sw3  link up eth9
+2026-11-03 12:00  sw3  link down eth9
+2026-11-02 07:40  gw1  vpn restored user alice
+2026-11-02 07:10  gw1  user alice not answering
+2026-11-02 07:00  gw1  vpn lost user alice
+2026-11-01 10:15  sw2  link up eth0
+2026-11-01 09:30  sw1  link up eth0
+2026-11-01 08:45  sw1  link up eth1
+2026-11-01 08:00  sw2  link down eth0
+2026-11-01 08:00  sw1  link down eth1
+2026-11-01 08:00  sw1  link down eth0
+garbage line without time
