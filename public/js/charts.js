@@ -110,7 +110,8 @@
 
   // ---------- Timeline ----------
   // One row per object (state.keys). Only for schemas with a state.
-  // opts: { events, outages, schema, textField, from, to (Date|null), onRange(fromDate, toDate), onPick(objectName) }
+  // opts: { events, outages, schema, textField, from, to (Date|null), onRange(fromDate, toDate), onPick(objectName),
+  //         decorate(objectName, event) -> display name (e.g. with notes; onPick still gets the original name) }
   function timeline(container, opts) {
     const { events, outages, schema } = opts;
     const st = schema.state;
@@ -126,20 +127,25 @@
     }
     if (t1 <= t0) t1 = t0 + H;
 
-    // Rows: key -> { name, group }
+    // Rows: key -> { name, display, group }
     const info = new Map();
-    const add = (key, e) => { if (!info.has(key)) info.set(key, { name: SC.objectName(e, st), group: st.group ? String(e[st.group]) : '' }); };
+    const add = (key, e) => {
+      if (info.has(key)) return;
+      const name = SC.objectName(e, st);
+      info.set(key, { name, display: opts.decorate ? opts.decorate(name, e) : name, group: st.group ? String(e[st.group]) : '' });
+    };
     events.forEach((e) => add(SC.objectKey(e, st), e));
     outages.forEach((a) => add(a.key, a.event));
     const cmp = (a, b) => a.localeCompare(b, 'en', { numeric: true });
     const lanes = [...info.keys()].sort((a, b) => cmp(info.get(a).group, info.get(b).group) || cmp(info.get(a).name, info.get(b).name));
     const nameOf = (k) => info.get(k).name;
+    const displayOf = (k) => info.get(k).display;
 
     const rowH = 22, mt = 4, mb = 26;
     const h = mt + lanes.length * rowH + mb;
     const { svg, w } = makeSvg(container, h, `Timeline with ${lanes.length} objects`);
     const narrow = w < 560;
-    const label = (k) => { const o = nameOf(k); return narrow && o.length > 20 ? o.slice(0, 19) + '…' : o; };
+    const label = (k) => { const o = displayOf(k); const max = narrow ? 20 : 48; return o.length > max ? o.slice(0, max - 1) + '…' : o; };
     const ml = Math.min(w * 0.42, measure(svg, lanes.map(label), 'lane') + 14);
     const mr = 10;
     const x = linear(t0, t1, ml, w - mr);
@@ -152,7 +158,7 @@
       if (i % 2 === 0) svgEl('rect', { x: ml, y: y(k), width: w - mr - ml, height: rowH, class: 'stripe' }, svg);
       const t = text(svg, ml - 8, y(k) + rowH / 2, label(k), { class: 'lane clickable', 'text-anchor': 'end', dy: '0.35em' });
       t.addEventListener('click', () => opts.onPick && opts.onPick(nameOf(k)));
-      hover(t, tip, [nameOf(k), info.get(k).group, 'Click: filter the event log']);
+      hover(t, tip, [displayOf(k), info.get(k).group, 'Click: filter the event log']);
     });
 
     const { ticks, fmt } = timeTicks(t0, t1, Math.max(2, Math.floor((w - ml) / 80)));
@@ -175,12 +181,12 @@
         x: Math.max(ml - 2, xa), y: y(a.key) + 4, width: Math.max(3, xb - Math.max(ml - 2, xa)), height: rowH - 8, rx: 2,
         class: 'outage' + (a.end ? '' : ' open')
       }, plot);
-      hover(r, tip, [a.object, 'Down ' + A.fmtTime(a.start), a.end ? 'Back ' + A.fmtTime(a.end) : 'No recovery in the log', 'Duration: ' + A.fmtDuration(a.duration_min), a.repeated ? 'Outage reported more than once' : '']);
+      hover(r, tip, [displayOf(a.key), 'Down ' + A.fmtTime(a.start), a.end ? 'Back ' + A.fmtTime(a.end) : 'No recovery in the log', 'Duration: ' + A.fmtDuration(a.duration_min), a.repeated ? 'Outage reported more than once' : '']);
     }
     for (const e of events) {
       const k = SC.objectKey(e, st);
       const c = svgEl('circle', { cx: x(A.toDate(e.time).getTime()), cy: y(k) + rowH / 2, r: 3.5, class: 'dot', style: `fill:${COLOR[A.classify(e, schema)]}` }, plot);
-      hover(c, tip, [nameOf(k), A.fmtTime(e.time) + ' · ' + e[st.field], msgField ? String(e[msgField]) : '']);
+      hover(c, tip, [displayOf(k), A.fmtTime(e.time) + ' · ' + e[st.field], msgField ? String(e[msgField]) : '']);
     }
 
     // Zoom: drag in the chart
@@ -253,7 +259,9 @@
 
   // ---------- Horizontal bars: most frequent values of a field ----------
   // rows: [{ value, count, minutes?, open?, objects? }]  (minutes set = outages per value)
-  function bars(container, rows, onPick, fieldLabel) {
+  // decorate(value) -> display text (e.g. with a note); onPick still gets the original value
+  function bars(container, rows, onPick, fieldLabel, decorate) {
+    const disp = (r) => (decorate ? decorate(r.value) : r.value);
     if (!rows.length) return empty(container, 'No values in this selection.');
     const rowH = 24, mt = 2;
     const h = mt + rows.length * rowH + 4;
@@ -262,7 +270,7 @@
     const end = (r) => (outs ? `${r.count}× · ${A.fmtDuration(r.minutes)}${r.open ? ' · ' + r.open + ' open' : ''}` : String(r.count));
     const narrow = w < 420;
     const lab = (s) => (s.length > (narrow ? 16 : 28) ? s.slice(0, narrow ? 15 : 27) + '…' : s);
-    const ml = Math.min(w * 0.45, measure(svg, rows.map((r) => lab(r.value)), 'lane') + 10);
+    const ml = Math.min(w * 0.45, measure(svg, rows.map((r) => lab(disp(r))), 'lane') + 10);
     const mr = Math.min(w * 0.5, measure(svg, rows.map(end), 'tick') + 10);
     const max = Math.max(...rows.map((r) => r.count));
     const x = linear(0, max, ml, w - mr);
@@ -271,12 +279,12 @@
       const yy = mt + i * rowH;
       const g = svgEl('g', { class: 'clickable' }, svg);
       svgEl('rect', { x: 0, y: yy, width: w, height: rowH, class: 'hit' }, g);
-      text(g, ml - 8, yy + rowH / 2, lab(r.value), { class: 'lane', 'text-anchor': 'end', dy: '0.35em' });
+      text(g, ml - 8, yy + rowH / 2, lab(disp(r)), { class: 'lane', 'text-anchor': 'end', dy: '0.35em' });
       svgEl('rect', { x: ml, y: yy + 4, height: rowH - 8, width: Math.max(2, x(r.count) - ml), rx: 2, class: r.open ? 'bar bar-bad' : 'bar' }, g);
       text(g, x(r.count) + 6, yy + rowH / 2, end(r), { class: 'tick', dy: '0.35em' });
       hover(g, tip, outs
-        ? [fieldLabel + ': ' + r.value, `${r.count} outages on ${r.objects} object(s)`, 'Downtime: ' + A.fmtDuration(r.minutes), r.open ? r.open + ' still open' : '', 'Click: filter by it']
-        : [fieldLabel + ': ' + r.value, r.count + ' entries', 'Click: filter by it']);
+        ? [fieldLabel + ': ' + disp(r), `${r.count} outages on ${r.objects} object(s)`, 'Downtime: ' + A.fmtDuration(r.minutes), r.open ? r.open + ' still open' : '', 'Click: filter by it']
+        : [fieldLabel + ': ' + disp(r), r.count + ' entries', 'Click: filter by it']);
       g.addEventListener('click', () => onPick(r.value));
     });
   }

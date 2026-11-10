@@ -76,6 +76,22 @@ class Store {
   }
   unmarkRead(type, k) { return this.b.deleteRead(type, k); }
 
+  // ---------- Notes on values ----------
+  listNotes(type) { return this.b.listNotes(type); }
+  /** Sets the note for a field value; an empty note removes it. The events themselves are not touched. */
+  async setNote(type, b) {
+    const schema = this.getType(type);
+    const field = String(b.field || ''), value = b.value == null ? '' : String(b.value), note = String(b.note || '').trim();
+    const bad = (msg) => { const e = new Error(msg); e.status = 400; return e; };
+    if (!schema || !(schema.fields || []).some((f) => f.name === field)) throw bad(`Unknown field «${field}».`);
+    if (field === 'time') throw bad('The time field cannot have notes.');
+    if (!value) throw bad('Notes need a value.');
+    if (note.length > 200) throw bad('The note is too long (max. 200 characters).');
+    if (!note) await this.b.deleteNote(type, field, value);
+    else await this.b.setNote(type, { field, value, note, at: new Date().toISOString() });
+    return this.b.listNotes(type);
+  }
+
   /** Duplicate check without storing: { new, existing }. */
   async checkDuplicates(type, res) {
     const existing = await this.b.countExisting(type, res.events);

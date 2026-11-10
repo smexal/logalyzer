@@ -218,6 +218,8 @@ const routes = [
     if (!(await store.unmarkRead(p.type, p.k))) throw new HttpError(404, 'This finding is not marked as read.');
     json(res, { ok: true });
   }],
+  ['GET', '/api/t/:type/notes', async (req, res, q, p) => { typeOr404(p.type); json(res, await store.listNotes(p.type)); }],
+  ['PUT', '/api/t/:type/notes', async (req, res, q, p) => { typeOr404(p.type); json(res, await store.setNote(p.type, await readJSON(req))); }],
   ['GET', '/api/t/:type/metrics', async (req, res, q, p) => {
     const schema = typeOr404(p.type);
     const f = filterFrom(q);

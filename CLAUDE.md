@@ -29,7 +29,7 @@ A changed log type in the running app is updated via `PUT /api/types/<id>`; exis
 
 ## Storage
 
-MongoDB only. `server/store/index.js` keeps types and (on access) the entries per type in memory and caches outages/findings; `server/store/mongo.js` writes. Collections: `types` (`_id` = id), `events` `{ type, seq, time, k, d }` (`no` is computed from `time, seq` when loading), `sources` `{ type, name, count, dupes, … }`, `read_findings` `{ type, k, sev, tag, title, text, at }`.
+MongoDB only. `server/store/index.js` keeps types and (on access) the entries per type in memory and caches outages/findings; `server/store/mongo.js` writes. Collections: `types` (`_id` = id), `events` `{ type, seq, time, k, d }` (`no` is computed from `time, seq` when loading), `sources` `{ type, name, count, dupes, … }`, `read_findings` `{ type, k, sev, tag, title, text, at }`, `notes` `{ type, field, value, note, at }` (notes on field values; display only, shown in brackets next to the value in the UI; never written into events, never used by analysis, search or export).
 Duplicates: `k` = SHA-1 of `eventKey` (all field values) + `#` + occurrence in the import; unique index `{ type, k }`, insert with `ordered: false`, duplicate errors 11000 are counted. Entries without `k` get one on startup.
 `server/store/migrate.js` + `MongoBackend.migrateGerman()` convert data of the earlier German version once on startup (schema keys, field `zeit` -> `time`, collection `gelesen` -> `read_findings`); user-chosen field names and values stay.
 `test/store.test.js` runs against `mongodb://localhost:27017/logalyzer_test` (or `MONGO_URL`), drops this test DB afterwards and is skipped if no MongoDB is running.

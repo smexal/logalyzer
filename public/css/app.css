@@ -214,6 +214,30 @@ dialog::backdrop { background: rgb(10 16 22 / 0.45); }
 .preview b { color: var(--fg); }
 .preview .warn { color: var(--warn); }
 .dlg-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.dlg-actions .spacer { flex: 1; }
+#dlg-note { width: min(520px, calc(100vw - 32px)); }
+.note-value { font-family: var(--mono); font-size: 12px; padding: 5px 8px; background: var(--stripe); border-radius: 6px; overflow-wrap: anywhere; }
+#note-text { width: 100%; }
+
+/* Notes on values */
+.annot { color: var(--accent); }
+.note-btn {
+  font: inherit; font-size: 12px; line-height: 1; border: 0; background: none; color: var(--muted); cursor: pointer;
+  padding: 1px 4px; margin-left: 4px; border-radius: 4px; opacity: 0;
+}
+.tbl tr:hover .note-btn, .note-btn:focus-visible { opacity: 1; }
+.note-btn:hover { color: var(--fg); background: var(--stripe); }
+.notes-card summary { cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.notes-card summary::-webkit-details-marker { display: none; }
+.notes-card summary::before { content: "▸"; color: var(--muted); }
+.notes-card[open] summary::before { content: "▾"; }
+.notes-card[open] summary { margin-bottom: 8px; }
+.notes-list { list-style: none; margin: 0; padding: 0; }
+.notes-list li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.notes-list li:first-child { border-top: 0; }
+.notes-list .n-field { color: var(--muted); font-size: 12px; min-width: 90px; }
+.notes-list .n-main { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.notes-list li.none { color: var(--muted); border: 0; }
 
 .dropping main { outline: 3px dashed var(--accent); outline-offset: -8px; }
 

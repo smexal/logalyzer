@@ -101,6 +101,12 @@
         <div class="tablewrap tall"><table class="tbl" id="tbl-log"><thead></thead><tbody></tbody></table></div>
       </section>
 
+      <details class="card notes-card" id="notes-card">
+        <summary><h2>Notes on values</h2><span class="count" id="notes-count"></span></summary>
+        <p class="hint">A note is shown in brackets next to a value wherever it appears (entries, outages, timeline, charts, filters). The log entries themselves stay unchanged; analysis, search, duplicate check and export ignore notes. Add one with ✎ next to a value in the tables.</p>
+        <ul class="notes-list" id="notes-list"></ul>
+      </details>
+
       <details class="notes" id="notes">
         <summary>How Logalyzer calculates</summary>
         <ul>
@@ -248,6 +254,22 @@
     <div class="dlg-actions">
       <button class="btn ghost" value="cancel" type="submit">Cancel</button>
       <button class="btn primary" id="raw-import" type="button">Import</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-note">
+  <form method="dialog" class="dlg">
+    <h2>Note on a value</h2>
+    <p class="hint">Shown in brackets next to the value wherever it appears. The log entries are not changed and the analysis ignores the note.</p>
+    <div class="field" id="note-field-f"><label for="note-field">Field</label><select id="note-field"></select></div>
+    <div class="field"><label>Value</label><div class="note-value" id="note-value"></div></div>
+    <div class="field"><label for="note-text">Note</label><input id="note-text" maxlength="200" placeholder="e.g. Reception, 1st floor" autocomplete="off"></div>
+    <div class="dlg-actions">
+      <button class="btn ghost danger" id="note-remove" type="button">Remove note</button>
+      <span class="spacer"></span>
+      <button class="btn ghost" value="cancel" type="submit">Cancel</button>
+      <button class="btn primary" id="note-save" type="button">Save</button>
     </div>
   </form>
 </dialog>

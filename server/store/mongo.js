@@ -12,6 +12,8 @@
  *                        occurrence is counted, so genuine repetitions are kept.
  *   sources        { type, name, format, count, dupes, at } per import
  *   read_findings  { type, k, sev, tag, title, text, at } findings marked as read (k = findingKey)
+ *   notes          { type, field, value, note, at } notes on field values, shown next to the value in the UI;
+ *                  kept apart from the events, so analysis, duplicate keys and exports are not affected
  */
 const crypto = require('node:crypto');
 const { MongoClient } = require('mongodb');
@@ -44,6 +46,7 @@ class MongoBackend {
     this.events = this.db.collection('events');
     this.sources = this.db.collection('sources');
     this.read = this.db.collection('read_findings');
+    this.notes = this.db.collection('notes');
     await this.migrateGerman();
     await this.addMissingKeys();
     await this.events.createIndex({ type: 1, time: 1, seq: 1 });
@@ -51,6 +54,7 @@ class MongoBackend {
     await this.events.createIndex({ type: 1, k: 1 }, { unique: true, name: 'duplicates' });
     await this.sources.createIndex({ type: 1, at: 1 });
     await this.read.createIndex({ type: 1, k: 1 }, { unique: true });
+    await this.notes.createIndex({ type: 1, field: 1, value: 1 }, { unique: true });
   }
   async close() { if (this.client) await this.client.close(); }
 
@@ -116,7 +120,13 @@ class MongoBackend {
     await this.events.deleteMany({ type: id });
     await this.sources.deleteMany({ type: id });
     await this.read.deleteMany({ type: id });
+    await this.notes.deleteMany({ type: id });
   }
+
+  // ---------- Notes on values ----------
+  async listNotes(type) { return this.notes.find({ type }, { projection: { _id: 0, type: 0 } }).sort({ field: 1, value: 1 }).toArray(); }
+  async setNote(type, n) { await this.notes.replaceOne({ type, field: n.field, value: n.value }, Object.assign({ type }, n), { upsert: true }); }
+  async deleteNote(type, field, value) { return (await this.notes.deleteOne({ type, field, value })).deletedCount; }
 
   // ---------- Read findings ----------
   async listRead(type) { return this.read.find({ type }, { projection: { _id: 0, type: 0 } }).sort({ at: -1 }).toArray(); }

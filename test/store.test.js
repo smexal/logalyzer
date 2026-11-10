@@ -75,9 +75,23 @@ test('Store (MongoDB): types, import with duplicate check, reload, read findings
     assert.strictEqual(await s.unmarkRead('network', f[0].k), 1);
     assert.strictEqual(await s.unmarkRead('network', f[0].k), 0);
 
+    // Notes on values: stored apart from the events, empty note removes, unknown fields are rejected
+    const eventsBefore = JSON.stringify((await s.get('network')).events);
+    assert.deepStrictEqual((await s.setNote('network', { field: 'object', value: 'sw1 eth0', note: ' Core switch ' })).map((n) => [n.field, n.value, n.note]), [['object', 'sw1 eth0', 'Core switch']]);
+    await s.setNote('network', { field: 'object', value: 'sw1 eth0', note: 'Core switch, rack 2' });
+    await s.setNote('network', { field: 'host', value: 'gw1', note: 'Gateway' });
+    assert.deepStrictEqual((await s.listNotes('network')).map((n) => n.field + '=' + n.value + ':' + n.note), ['host=gw1:Gateway', 'object=sw1 eth0:Core switch, rack 2']);
+    await assert.rejects(() => s.setNote('network', { field: 'nope', value: 'x', note: 'y' }), /Unknown field/);
+    await assert.rejects(() => s.setNote('network', { field: 'time', value: 'x', note: 'y' }));
+    await assert.rejects(() => s.setNote('network', { field: 'host', value: '', note: 'y' }));
+    assert.deepStrictEqual((await s.setNote('network', { field: 'host', value: 'gw1', note: '' })).map((n) => n.value), ['sw1 eth0']);
+    assert.strictEqual(JSON.stringify((await s.get('network')).events), eventsBefore, 'notes do not change the events');
+    await s.setNote('test', { field: 'value', value: '1.5', note: 'x' });
+
     await s.deleteType('test');
     assert.strictEqual(s.getType('test'), null);
     assert.deepStrictEqual(await s.listRead('test'), []);
+    assert.deepStrictEqual(await s.listNotes('test'), []);
   } finally {
     await s.b.db.dropDatabase().catch(() => {});
     await s.close();

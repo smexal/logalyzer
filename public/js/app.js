@@ -17,6 +17,7 @@
     outages: [],
     findings: [],
     read: [],
+    notes: [],
     findingsTab: 'open',
     filter: emptyFilter(),
     lanes: 'outage',
@@ -62,6 +63,7 @@
     S.events = d.events || [];
     S.sources = d.sources || [];
     S.read = await api('GET', `/api/t/${enc(id)}/read`).catch(() => []);
+    setNotes(await api('GET', `/api/t/${enc(id)}/notes`).catch(() => []));
     recompute();
     if (!keepFilter) { S.filter = emptyFilter(); S.logStatus = ''; S.sort = { key: 'resolution', asc: true }; }
     render();
@@ -118,6 +120,85 @@
     scrollTo('#tbl-log');
   }
 
+  // ---------- Notes on values ----------
+  // Only for display: the events stay unchanged, analysis/search/export use the original values.
+  let NOTES = new Map();
+  const noteKey = (f, v) => f + '\u001f' + v;
+  function setNotes(list) {
+    S.notes = list || [];
+    NOTES = new Map(S.notes.map((n) => [noteKey(n.field, n.value), n.note]));
+  }
+  const noteOf = (f, v) => (v === '' || v == null ? '' : NOTES.get(noteKey(f, String(v))) || '');
+  /** Value with its note in brackets, as plain text. */
+  const withNote = (f, v) => { const n = noteOf(f, v); return n ? `${v} (${n})` : String(v); };
+  /** Notes of the fields that identify an object (state.keys). */
+  function objectNotes(e) {
+    const st = S.schema.state;
+    return st ? st.keys.map((k) => noteOf(k, e[k])).filter(Boolean).join(', ') : '';
+  }
+  const objectLabel = (name, e) => { const n = objectNotes(e); return n ? `${name} (${n})` : name; };
+  /** Text node(s): value plus the note in brackets. */
+  function noted(text, note) {
+    const s = document.createElement('span');
+    s.append(String(text));
+    if (note) { const a = document.createElement('span'); a.className = 'annot'; a.textContent = ` (${note})`; s.appendChild(a); }
+    return s;
+  }
+  function noteButton(e, fields) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'note-btn'; b.textContent = '✎';
+    const has = fields.some((f) => noteOf(f, e[f]));
+    b.title = has ? 'Edit note' : 'Add note';
+    b.setAttribute('aria-label', b.title);
+    b.addEventListener('click', (ev) => { ev.stopPropagation(); openNote(e, fields); });
+    return b;
+  }
+
+  let noteCtx = null;
+  function openNote(e, fields) {
+    fields = fields.filter((f) => f !== 'time' && e[f] !== '' && e[f] != null);
+    if (!fields.length) return;
+    noteCtx = { e, fields };
+    fillSelect($('#note-field'), null, fields.map((f) => [f, label(f)]), fields.find((f) => noteOf(f, e[f])) || fields[0]);
+    $('#note-field-f').hidden = fields.length < 2;
+    syncNoteDialog();
+    $('#dlg-note').showModal();
+    $('#note-text').focus();
+  }
+  function syncNoteDialog() {
+    const f = $('#note-field').value, v = String(noteCtx.e[f]);
+    $('#note-value').textContent = v;
+    $('#note-text').value = noteOf(f, v);
+    $('#note-remove').hidden = !noteOf(f, v);
+  }
+  async function saveNote(remove) {
+    const field = $('#note-field').value, value = String(noteCtx.e[field]);
+    const note = remove ? '' : $('#note-text').value.trim();
+    try { setNotes(await api('PUT', `/api/t/${enc(S.type)}/notes`, { field, value, note })); } catch (e) { toast(e.message); return; }
+    $('#dlg-note').close();
+    render();
+    toast(note ? 'Note saved.' : 'Note removed.');
+  }
+
+  function renderNotes() {
+    $('#notes-count').textContent = S.notes.length ? `${S.notes.length} note${S.notes.length === 1 ? '' : 's'}` : 'none yet';
+    const ul = $('#notes-list');
+    if (!S.notes.length) {
+      const li = document.createElement('li'); li.className = 'none'; li.textContent = 'No notes yet. Use ✎ next to a value in the tables.';
+      ul.replaceChildren(li);
+      return;
+    }
+    ul.replaceChildren(...S.notes.map((n) => {
+      const li = document.createElement('li');
+      const f = document.createElement('span'); f.className = 'n-field'; f.textContent = label(n.field);
+      const m = document.createElement('span'); m.className = 'n-main'; m.appendChild(noted(n.value, n.note));
+      const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'btn ghost'; edit.textContent = 'Edit';
+      edit.addEventListener('click', () => openNote({ [n.field]: n.value }, [n.field]));
+      li.append(f, m, edit);
+      return li;
+    }));
+  }
+
   // ---------- Render ----------
   function render() {
     const sc = S.schema;
@@ -150,6 +231,7 @@
     renderCharts(ev, outs);
     if (st) renderOutageTable(outs);
     renderLog(ev);
+    renderNotes();
   }
 
   function syncControls() {
@@ -167,7 +249,7 @@
       const sel = document.createElement('select');
       sel.id = 'ff-' + x.name;
       const values = [...new Set(S.events.map((e) => e[x.name]).filter((v) => v !== '' && v != null).map(String))].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
-      fillSelect(sel, 'All', values.slice(0, 500).map((v) => [v, v]), f.fields[x.name]);
+      fillSelect(sel, 'All', values.slice(0, 500).map((v) => [v, withNote(x.name, v)]), f.fields[x.name]);
       sel.addEventListener('change', () => { if (sel.value) S.filter.fields[x.name] = sel.value; else delete S.filter.fields[x.name]; render(); });
       d.append(l, sel);
       return d;
@@ -189,14 +271,14 @@
     }
   }
   function fillSelect(sel, allLabel, opts, value) {
-    sel.replaceChildren(new Option(allLabel, ''), ...opts.map(([v, l]) => new Option(l, v)));
+    sel.replaceChildren(...(allLabel != null ? [new Option(allLabel, '')] : []), ...opts.map(([v, l]) => new Option(l, v)));
     sel.value = value || '';
   }
 
   function renderInfo(ev) {
     const f = S.filter, parts = [];
     if (f.from || f.to) parts.push(`Range ${f.from ? A.fmtTime(f.from) + ' ' + f.from.slice(0, 4) : 'start'} to ${f.to ? A.fmtTime(f.to) + ' ' + f.to.slice(0, 4) : 'end'}`);
-    for (const [k, v] of Object.entries(f.fields)) parts.push(`${label(k)} ${v}`);
+    for (const [k, v] of Object.entries(f.fields)) parts.push(`${label(k)} ${withNote(k, v)}`);
     if (f.q) parts.push(`Search «${f.q}»`);
     $('#filterinfo').textContent = parts.length ? `Filtered: ${parts.join(' · ')} → ${ev.length} of ${S.events.length} entries` : '';
     $('#f-reset').hidden = !parts.length && !S.logStatus;
@@ -343,7 +425,7 @@
       shown = outs.filter((a) => keep.has(a.key));
     }
     C.timeline($('#ch-timeline'), {
-      events, outages: shown, schema: S.schema, textField: textField(),
+      events, outages: shown, schema: S.schema, textField: textField(), decorate: objectLabel,
       from: S.filter.from ? A.toDate(S.filter.from) : null,
       to: S.filter.to ? A.toDate(S.filter.to) : null,
       onRange: (a, b) => { S.filter.from = isoLocal(a); S.filter.to = isoLocal(b); render(); },
@@ -369,7 +451,7 @@
     cards.push([perDay, (el) => C.days(el, A.perDay(ev, sc), (day) => zoomDay(day), st ? { down: st.down.join('/'), up: st.up.join('/'), other: 'other' } : null)]);
     for (const f of (sc.fields || []).filter((x) => x.chart)) {
       const t = card(st ? `Outages per ${f.label || f.name}` : `Most frequent ${f.label || f.name}`, st ? 'At the end of the bar: count and downtime. Click to filter.' : 'Number of entries per value. Click to filter.');
-      cards.push([t, (el) => C.bars(el, A.topValues(ev, outs, sc, f.name, 15), (v) => pickValue(f.name, v), f.label || f.name)]);
+      cards.push([t, (el) => C.bars(el, A.topValues(ev, outs, sc, f.name, 15), (v) => pickValue(f.name, v), f.label || f.name, (v) => withNote(f.name, v))]);
     }
     const what = st ? st.down.join('/') : 'entries';
     const hrs = card(`${st ? 'Outages' : 'Entries'} by time of day`, 'All days of the selection added up.');
@@ -414,8 +496,9 @@
       const tr = document.createElement('tr');
       tr.className = 'clickable';
       tr.title = 'Click to zoom to this outage';
-      cell(tr, a.object, 'nw');
-      if (st.group) cell(tr, String(a.event[st.group]), 'nw');
+      const oc = cell(tr, noted(a.object, objectNotes(a.event)), 'nw');
+      oc.appendChild(noteButton(a.event, st.keys));
+      if (st.group) cell(tr, noted(String(a.event[st.group]), noteOf(st.group, a.event[st.group])), 'nw');
       cell(tr, A.fmtTime(a.start), 'nw');
       cell(tr, a.end ? A.fmtTime(a.end) : '–', 'nw');
       cell(tr, A.fmtDuration(a.duration_min), 'num nw');
@@ -456,7 +539,10 @@
         if (st && c.name === st.field) cell(tr, pill(String(v), CLS[A.classify(e, sc)]), 'nw');
         else if (c.type === 'number') cell(tr, v === '' ? '' : A.fmtNumber(v), 'num nw');
         else if (c.type === 'text' && String(v).length > 40) cell(tr, String(v), 'msg');
-        else cell(tr, String(v), 'nw');
+        else {
+          const td = cell(tr, noted(String(v), noteOf(c.name, v)), 'nw');
+          if (v !== '' && v != null) td.appendChild(noteButton(e, [c.name]));
+        }
       }
       return tr;
     }));
@@ -683,6 +769,10 @@
     });
     $('#tl-rows').addEventListener('change', (e) => { S.lanes = e.target.value; render(); });
     $('#log-status').addEventListener('change', (e) => { S.logStatus = e.target.value; render(); });
+    $('#note-field').addEventListener('change', syncNoteDialog);
+    $('#note-save').addEventListener('click', () => saveNote(false));
+    $('#note-remove').addEventListener('click', () => saveNote(true));
+    $('#note-text').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveNote(false); } });
 
     // Drag & drop
     let depth = 0;

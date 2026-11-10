@@ -52,6 +52,10 @@ Deleting individual data is not possible; «Delete log type» in the editor remo
 
 Findings are detected automatically (open outages, simultaneous outages, long and repeated outages, short interruptions, restarts, spikes, outliers). Click a finding to zoom to it; ✓ marks it as read. Read findings are stored per log type and listed in the «Read» tab, from where they can be shown again. A finding is recognised by its tag and title: if the title changes (e.g. a count after a new import), it counts as new.
 
+## Notes on values
+
+To identify a value better without changing the log, add a note to it: hover over a value in the entry or outage table and click ✎ (e.g. object `Tel. 4130 / Gerät 18` → note `Reception`). The note is shown in brackets wherever the value appears: entries, outages, timeline, charts and filter lists. Notes are stored per log type, field and value, apart from the entries; analysis, search, findings, duplicate check and CSV export use the original values only. «Notes on values» below the entries lists all notes for editing; an empty note removes it.
+
 ## Schema format
 
 ```json
@@ -107,6 +111,8 @@ Filter parameters where noted: `from`, `to` (`YYYY-MM-DDTHH:MM`), `q` (full text
 | `GET /api/t/:type/read` | findings marked as read (state when marked, newest first) |
 | `POST /api/t/:type/read` | mark a finding as read (body = finding with `k`) |
 | `DELETE /api/t/:type/read/:k` | show a finding among the open ones again |
+| `GET /api/t/:type/notes` | notes on field values `[{ field, value, note, at }]` |
+| `PUT /api/t/:type/notes` | set a note `{ field, value, note }` (empty `note` removes it), returns all notes |
 | `GET /api/t/:type/metrics` | metrics, filter |
 | `GET /api/t/:type/export/events.csv` | entries as CSV, filter |
 | `GET /api/t/:type/export/outages.csv` | outages as CSV, filter |
