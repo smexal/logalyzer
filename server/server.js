@@ -191,7 +191,18 @@ const routes = [
     if (r.error) throw new HttpError(400, r.error);
     json(res, Object.assign(summary(r), { fallback: fallbackHits(r, schema) }, await store.checkDuplicates(p.type, r)));
   }],
-  ['GET', '/api/t/:type/data', async (req, res, q, p) => { typeOr404(p.type); json(res, await store.get(p.type)); }],
+  ['GET', '/api/t/:type/data', async (req, res, q, p) => {
+    typeOr404(p.type);
+    const d = await store.get(p.type);
+    json(res, { events: d.events, sources: d.sources, columns: await store.listColumns(p.type), extras: await store.listExtras(p.type), layout: await store.getLayout(p.type) });
+  }],
+  ['GET', '/api/t/:type/layout', async (req, res, q, p) => { typeOr404(p.type); json(res, await store.getLayout(p.type)); }],
+  ['PUT', '/api/t/:type/layout', async (req, res, q, p) => { typeOr404(p.type); json(res, await store.saveLayout(p.type, await readJSON(req))); }],
+  // Manual columns and per-entry extras (highlight, column values); the events themselves are never changed
+  ['GET', '/api/t/:type/columns', async (req, res, q, p) => { typeOr404(p.type); json(res, await store.listColumns(p.type)); }],
+  ['PUT', '/api/t/:type/columns', async (req, res, q, p) => { typeOr404(p.type); json(res, await store.saveColumns(p.type, await readJSON(req))); }],
+  ['GET', '/api/t/:type/extras', async (req, res, q, p) => { typeOr404(p.type); json(res, await store.listExtras(p.type)); }],
+  ['PATCH', '/api/t/:type/entries/:k', async (req, res, q, p) => { typeOr404(p.type); json(res, await store.setExtra(p.type, p.k, await readJSON(req))); }],
   ['GET', '/api/t/:type/events', async (req, res, q, p) => {
     const schema = typeOr404(p.type);
     const ev = A.filterEvents((await store.get(p.type)).events, filterFrom(q), schema);
@@ -230,8 +241,22 @@ const routes = [
   ['GET', '/api/t/:type/export/events.csv', async (req, res, q, p) => {
     const schema = typeOr404(p.type);
     const f = filterFrom(q);
-    const ev = A.filterEvents((await store.get(p.type)).events, f, schema);
-    csv(res, `${p.type}-events${hasFilter(f) ? '-filtered' : ''}-${stamp()}.csv`, S.toCSV(ev, S.columns(schema)));
+    let ev = A.filterEvents((await store.get(p.type)).events, f, schema);
+    // Manual columns and highlight are appended; a re-import ignores them (only schema fields are read)
+    const cols = await store.listColumns(p.type);
+    const extras = new Map((await store.listExtras(p.type)).map((x) => [x.k, x]));
+    const hl = q.get('highlight');
+    if (hl) ev = ev.filter((e) => { const h = (extras.get(e._k) || {}).highlight; return hl === 'any' ? !!h : h === hl; });
+    const withHl = ev.some((e) => (extras.get(e._k) || {}).highlight);
+    const rows = ev.map((e) => {
+      const x = extras.get(e._k);
+      if (!x) return e;
+      const r = Object.assign({}, e, x.values || {});
+      if (x.highlight) r.highlight = x.highlight;
+      return r;
+    });
+    const columns = S.columns(schema).concat(cols.map((c) => c.name), withHl ? ['highlight'] : []);
+    csv(res, `${p.type}-events${hasFilter(f) || hl ? '-filtered' : ''}-${stamp()}.csv`, S.toCSV(rows, columns));
   }],
   ['GET', '/api/t/:type/export/outages.csv', async (req, res, q, p) => {
     const schema = typeOr404(p.type);

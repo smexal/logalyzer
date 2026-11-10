@@ -14,6 +14,10 @@
  *   read_findings  { type, k, sev, tag, title, text, at } findings marked as read (k = findingKey)
  *   notes          { type, field, value, note, at } notes on field values, shown next to the value in the UI;
  *                  kept apart from the events, so analysis, duplicate keys and exports are not affected
+ *   columns        { type, name, label, pos } manual text columns of a log type (not part of the schema)
+ *   entry_extras   { type, k, highlight, values: { column: text }, at } per entry (k = the event's duplicate
+ *                  key, stable across imports): highlight colour and values of the manual columns
+ *   views          { type, order: [column names] } display settings of the entries table (column order)
  */
 const crypto = require('node:crypto');
 const { MongoClient } = require('mongodb');
@@ -47,6 +51,9 @@ class MongoBackend {
     this.sources = this.db.collection('sources');
     this.read = this.db.collection('read_findings');
     this.notes = this.db.collection('notes');
+    this.columns = this.db.collection('columns');
+    this.extras = this.db.collection('entry_extras');
+    this.views = this.db.collection('views');
     await this.migrateGerman();
     await this.addMissingKeys();
     await this.events.createIndex({ type: 1, time: 1, seq: 1 });
@@ -55,6 +62,9 @@ class MongoBackend {
     await this.sources.createIndex({ type: 1, at: 1 });
     await this.read.createIndex({ type: 1, k: 1 }, { unique: true });
     await this.notes.createIndex({ type: 1, field: 1, value: 1 }, { unique: true });
+    await this.columns.createIndex({ type: 1, name: 1 }, { unique: true });
+    await this.extras.createIndex({ type: 1, k: 1 }, { unique: true });
+    await this.views.createIndex({ type: 1 }, { unique: true });
   }
   async close() { if (this.client) await this.client.close(); }
 
@@ -121,7 +131,36 @@ class MongoBackend {
     await this.sources.deleteMany({ type: id });
     await this.read.deleteMany({ type: id });
     await this.notes.deleteMany({ type: id });
+    await this.columns.deleteMany({ type: id });
+    await this.extras.deleteMany({ type: id });
+    await this.views.deleteMany({ type: id });
   }
+
+  // ---------- Display settings ----------
+  async getView(type) { const v = await this.views.findOne({ type }, { projection: { _id: 0, type: 0 } }); return v || { order: [] }; }
+  async saveView(type, v) { await this.views.replaceOne({ type }, Object.assign({ type }, v), { upsert: true }); }
+
+  // ---------- Manual columns and per-entry extras ----------
+  async listColumns(type) { return this.columns.find({ type }, { projection: { _id: 0, type: 0 } }).sort({ pos: 1 }).toArray(); }
+  /** Replaces the column list; values of removed columns are deleted from all entries. */
+  async saveColumns(type, cols) {
+    const old = (await this.listColumns(type)).map((c) => c.name);
+    const removed = old.filter((n) => !cols.some((c) => c.name === n));
+    await this.columns.deleteMany({ type });
+    if (cols.length) await this.columns.insertMany(cols.map((c, pos) => ({ type, name: c.name, label: c.label, pos })));
+    if (removed.length) {
+      await this.extras.updateMany({ type }, { $unset: Object.fromEntries(removed.map((n) => ['values.' + n, ''])) });
+      await this.deleteEmptyExtras(type);
+    }
+  }
+  async listExtras(type) { return this.extras.find({ type }, { projection: { _id: 0, type: 0 } }).toArray(); }
+  async getExtra(type, k) { return this.extras.findOne({ type, k }, { projection: { _id: 0, type: 0 } }); }
+  async saveExtra(type, x) {
+    if (!x.highlight && !Object.keys(x.values || {}).length) { await this.extras.deleteOne({ type, k: x.k }); return; }
+    await this.extras.replaceOne({ type, k: x.k }, Object.assign({ type }, x), { upsert: true });
+  }
+  async deleteEmptyExtras(type) { await this.extras.deleteMany({ type, highlight: null, $or: [{ values: {} }, { values: { $exists: false } }] }); }
+  async hasEvent(type, k) { return !!(await this.events.findOne({ type, k }, { projection: { _id: 1 } })); }
 
   // ---------- Notes on values ----------
   async listNotes(type) { return this.notes.find({ type }, { projection: { _id: 0, type: 0 } }).sort({ field: 1, value: 1 }).toArray(); }
@@ -134,8 +173,9 @@ class MongoBackend {
   async deleteRead(type, k) { return (await this.read.deleteOne({ type, k })).deletedCount; }
 
   async loadAll(type) {
-    const docs = await this.events.find({ type }, { projection: { d: 1 } }).sort({ time: 1, seq: 1 }).toArray();
-    const events = docs.map((x, i) => Object.assign({ no: i + 1 }, x.d));
+    const docs = await this.events.find({ type }, { projection: { d: 1, k: 1 } }).sort({ time: 1, seq: 1 }).toArray();
+    // _k: stable id of the entry (duplicate key), used for highlights and manual columns; not a field
+    const events = docs.map((x, i) => Object.assign({ no: i + 1 }, x.d, { _k: x.k }));
     const sources = await this.sources.find({ type }, { projection: { _id: 0, type: 0 } }).sort({ at: 1 }).toArray();
     return { events, sources };
   }
@@ -144,7 +184,7 @@ class MongoBackend {
   static keys(list) {
     const count = new Map();
     return list.map((e) => {
-      const d = Object.assign({}, e); delete d.no;
+      const d = Object.assign({}, e); delete d.no; delete d._k;
       const h = hash(d), n = (count.get(h) || 0) + 1;
       count.set(h, n);
       return { k: h + '#' + n, d };

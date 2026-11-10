@@ -56,6 +56,13 @@ Findings are detected automatically (open outages, simultaneous outages, long an
 
 To identify a value better without changing the log, add a note to it: hover over a value in the entry or outage table and click ✎ (e.g. object `Tel. 4130 / Gerät 18` → note `Reception`). The note is shown in brackets wherever the value appears: entries, outages, timeline, charts and filter lists. Notes are stored per log type, field and value, apart from the entries; analysis, search, findings, duplicate check and CSV export use the original values only. «Notes on values» below the entries lists all notes for editing; an empty note removes it.
 
+## Highlights and manual columns
+
+- **Highlight rows**: click the small circle in front of the time of an entry and choose a colour (yellow, red, green, blue). «Highlighted rows» or a colour in the entries toolbar shows only those rows.
+- **Manual columns**: «Columns …» in the entries toolbar adds your own text columns to a log type (e.g. «Comment», «Ticket»). Click a cell to write into it; Enter saves, Shift+Enter makes a new line, Esc cancels.
+
+Both are stored on the server per entry, apart from the log entries (an entry is identified by its duplicate key, which stays the same when further logs are imported). The analysis ignores them; the search covers the manual columns, and the CSV export appends the manual columns and, if any, a `highlight` column. Removing a column deletes its values.
+
 ## Schema format
 
 ```json
@@ -104,7 +111,10 @@ Filter parameters where noted: `from`, `to` (`YYYY-MM-DDTHH:MM`), `q` (full text
 | `POST /api/import` | import with type detection: `{ text, name?, type? }` or text as body with `?type=…&name=…` → `{ added, dupes, total, … }` |
 | `POST /api/t/:type/import` | import into a specific type |
 | `POST /api/t/:type/preview` | like import incl. `new`/`existing`, stores nothing |
-| `GET /api/t/:type/data` | all entries and imports (`sources` with `count` new and `dupes`) |
+| `GET /api/t/:type/data` | all entries (each with its id `_k`), imports (`sources` with `count` new and `dupes`), manual `columns` and per-entry `extras` |
+| `GET` / `PUT /api/t/:type/columns` | manual text columns `[{ name, label }]`; `PUT` replaces the list (values of removed columns are deleted) |
+| `GET /api/t/:type/extras` | per-entry extras `[{ k, highlight, values }]` |
+| `PATCH /api/t/:type/entries/:k` | change one entry's extras: `{ highlight: "yellow"\|"red"\|"green"\|"blue"\|null, values: { column: text } }` (empty text removes a value) |
 | `GET /api/t/:type/events` | entries, filter + `limit` |
 | `GET /api/t/:type/outages` | outages, filter + `resolution=open\|resolved` |
 | `GET /api/t/:type/findings` | automatic findings without the read ones (`?all=1`: all); every finding has a key `k` |
@@ -114,7 +124,7 @@ Filter parameters where noted: `from`, `to` (`YYYY-MM-DDTHH:MM`), `q` (full text
 | `GET /api/t/:type/notes` | notes on field values `[{ field, value, note, at }]` |
 | `PUT /api/t/:type/notes` | set a note `{ field, value, note }` (empty `note` removes it), returns all notes |
 | `GET /api/t/:type/metrics` | metrics, filter |
-| `GET /api/t/:type/export/events.csv` | entries as CSV, filter |
+| `GET /api/t/:type/export/events.csv` | entries as CSV incl. manual columns, filter + `highlight=any\|<colour>` |
 | `GET /api/t/:type/export/outages.csv` | outages as CSV, filter |
 
 Example (PowerShell):

@@ -61,7 +61,9 @@ test('Store (MongoDB): types, import with duplicate check, reload, read findings
     await s2.init();
     assert.strictEqual(JSON.stringify((await s2.get('network')).events), before);
     assert.deepStrictEqual((await s2.get('network')).sources.map((x) => [x.name, x.count, x.dupes]), [['First', 17, 0], ['Again', 0, 17], ['Extra', 1, 1]]);
-    assert.deepStrictEqual((await s2.get('test')).events, [{ no: 1, time: '2026-11-10T08:00', value: 1.5 }, { no: 2, time: '2026-11-10T08:00', value: 1.5 }]);
+    const testEvents = (await s2.get('test')).events;
+    assert.deepStrictEqual(testEvents.map((e) => { const o = Object.assign({}, e); delete o._k; return o; }), [{ no: 1, time: '2026-11-10T08:00', value: 1.5 }, { no: 2, time: '2026-11-10T08:00', value: 1.5 }]);
+    assert.ok(testEvents.every((e) => /#\d+$/.test(e._k)) && testEvents[0]._k !== testEvents[1]._k, 'every entry has its own stable id');
     await s2.close();
 
     // Mark findings as read, show them again; deleting the type removes them
@@ -88,10 +90,49 @@ test('Store (MongoDB): types, import with duplicate check, reload, read findings
     assert.strictEqual(JSON.stringify((await s.get('network')).events), eventsBefore, 'notes do not change the events');
     await s.setNote('test', { field: 'value', value: '1.5', note: 'x' });
 
+    // Manual columns and per-entry extras (highlight, values); events stay unchanged
+    await assert.rejects(() => s.saveColumns('network', [{ name: 'host', label: 'X' }]), /already used/);
+    await assert.rejects(() => s.saveColumns('network', [{ name: '1x' }]));
+    await assert.rejects(() => s.saveColumns('network', [{ name: 'a' }, { name: 'a' }]), /twice/);
+    assert.deepStrictEqual((await s.saveColumns('network', [{ name: 'comment', label: 'Comment' }, { name: 'ticket' }])).map((c) => [c.name, c.label]), [['comment', 'Comment'], ['ticket', 'ticket']]);
+    const [e1, e2] = (await s.get('network')).events;
+    assert.deepStrictEqual(await s.setExtra('network', e1._k, { highlight: 'yellow' }).then((x) => [x.highlight, x.values]), ['yellow', {}]);
+    await s.setExtra('network', e1._k, { values: { comment: ' checked by Anna ', ticket: 'T-12' } });
+    await s.setExtra('network', e2._k, { values: { ticket: 'T-13' } });
+    await assert.rejects(() => s.setExtra('network', e1._k, { highlight: 'pink' }), /Highlight/);
+    await assert.rejects(() => s.setExtra('network', e1._k, { values: { nope: 'x' } }), /Unknown column/);
+    await assert.rejects(() => s.setExtra('network', 'missing#1', { highlight: 'red' }), /Unknown entry/);
+    let extras = await s.listExtras('network');
+    assert.deepStrictEqual(extras.find((x) => x.k === e1._k).values, { comment: 'checked by Anna', ticket: 'T-12' });
+    assert.strictEqual(extras.find((x) => x.k === e1._k).highlight, 'yellow');
+    // Removing a column removes its values; entries without anything left disappear
+    await s.saveColumns('network', [{ name: 'comment', label: 'Comment' }]);
+    extras = await s.listExtras('network');
+    assert.deepStrictEqual(extras.map((x) => [x.k, x.highlight, x.values]), [[e1._k, 'yellow', { comment: 'checked by Anna' }]]);
+    await s.setExtra('network', e1._k, { highlight: null, values: { comment: '' } });
+    assert.deepStrictEqual(await s.listExtras('network'), []);
+    assert.strictEqual(JSON.stringify((await s.get('network')).events), eventsBefore, 'extras do not change the events');
+    // Ids stay stable when new entries are imported
+    await s.setExtra('network', e1._k, { highlight: 'red' });
+    await s.importParsed('network', S.parse('2026-10-01 00:00  sw0  link down eth0', NET), 'Older');
+    const again = (await s.get('network')).events.find((e) => e._k === e1._k);
+    assert.ok(again && again.no !== e1.no && again.time === e1.time, 'row number changes, id does not');
+    // Column order of the entries table: unknown names and "time" are dropped
+    assert.deepStrictEqual(await s.getLayout('network'), { order: [] });
+    assert.deepStrictEqual(await s.saveLayout('network', { order: ['comment', 'message', 'nope', 'time', 'host', 'message'] }), { order: ['comment', 'message', 'host'] });
+    assert.deepStrictEqual(await s.getLayout('network'), { order: ['comment', 'message', 'host'] });
+    await assert.rejects(() => s.saveLayout('network', { order: 'x' }));
+    await s.saveColumns('test', [{ name: 'c' }]);
+    await s.saveLayout('test', { order: ['c', 'value'] });
+    await s.setExtra('test', (await s.get('test')).events[0]._k, { values: { c: 'x' } });
+
     await s.deleteType('test');
     assert.strictEqual(s.getType('test'), null);
     assert.deepStrictEqual(await s.listRead('test'), []);
     assert.deepStrictEqual(await s.listNotes('test'), []);
+    assert.deepStrictEqual(await s.listColumns('test'), []);
+    assert.deepStrictEqual(await s.listExtras('test'), []);
+    assert.deepStrictEqual(await s.getLayout('test'), { order: [] });
   } finally {
     await s.b.db.dropDatabase().catch(() => {});
     await s.close();
@@ -122,7 +163,7 @@ test('Store (MongoDB): migrates a database written by the German version', async
     try {
       assert.deepStrictEqual(s.getType('alt').fields.map((f) => [f.name, f.type, f.source]), [['time', 'time', 'Zeit'], ['wert', 'number', 'Wert']]);
       const d = await s.get('alt');
-      assert.deepStrictEqual(d.events, [{ no: 1, time: '2026-11-10T08:00', wert: 1 }, { no: 2, time: '2026-11-10T09:00', wert: 2 }]);
+      assert.deepStrictEqual(d.events.map((e) => { const o = Object.assign({}, e); delete o._k; return o; }), [{ no: 1, time: '2026-11-10T08:00', wert: 1 }, { no: 2, time: '2026-11-10T09:00', wert: 2 }]);
       assert.deepStrictEqual(d.sources.map((x) => [x.name, x.count, x.dupes]), [['Import', 2, 0]]);
       assert.deepStrictEqual((await s.listRead('alt')).map((g) => [g.k, g.title]), [['abc', 'T']]);
       // Keys were recomputed: importing the same data again adds nothing

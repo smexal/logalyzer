@@ -95,6 +95,11 @@ test('Time formats', () => {
   assert.strictEqual(A.fmtDuration(1505), '1 d 1 h 5 min');
 });
 
+test('Date-only "to" includes the whole last minute, also with seconds', () => {
+  const ev = [{ no: 1, time: '2026-11-10T23:59:30' }, { no: 2, time: '2026-11-11T00:00' }, { no: 3, time: '2026-11-10T00:00' }];
+  assert.deepStrictEqual(A.filterEvents(ev, { from: '2026-11-10T00:00', to: '2026-11-10T23:59' }, null).map((e) => e.no), [1, 3]);
+});
+
 test('Merging skips duplicates', () => {
   const ev = S.parse(LOG, NET).events;
   const m = A.merge(ev, ev.slice(0, 10));

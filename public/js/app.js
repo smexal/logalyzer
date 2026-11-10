@@ -18,6 +18,11 @@
     findings: [],
     read: [],
     notes: [],
+    columns: [],         // manual text columns [{ name, label }]
+    extras: new Map(),   // entry id (_k) -> { highlight, values: { column: text } }
+    logHl: '',           // '' | 'any' | colour: only highlighted rows in the entries table
+    layout: { order: [] }, // column order of the entries table (stored on the server)
+    preset: null,        // quick range { key, from } while it is active
     findingsTab: 'open',
     filter: emptyFilter(),
     lanes: 'outage',
@@ -62,10 +67,13 @@
     const d = await api('GET', `/api/t/${enc(id)}/data`);
     S.events = d.events || [];
     S.sources = d.sources || [];
-    S.read = await api('GET', `/api/t/${enc(id)}/read`).catch(() => []);
+    S.columns = d.columns || [];
+    S.layout = d.layout || { order: [] };
+    S.extras = new Map((d.extras || []).map((x) => [x.k, x]));
+    S.read =await api('GET', `/api/t/${enc(id)}/read`).catch(() => []);
     setNotes(await api('GET', `/api/t/${enc(id)}/notes`).catch(() => []));
     recompute();
-    if (!keepFilter) { S.filter = emptyFilter(); S.logStatus = ''; S.sort = { key: 'resolution', asc: true }; }
+    if (!keepFilter) { S.filter = emptyFilter(); S.logStatus = ''; S.logHl = ''; S.sort = { key: 'resolution', asc: true }; }
     render();
   }
   function recompute() {
@@ -100,11 +108,22 @@
   }
 
   // ---------- Filter ----------
-  const filteredEvents = () => A.filterEvents(S.events, S.filter, S.schema);
+  /** Filtered events; the search also covers the manual columns of an entry. */
+  function filteredEvents() {
+    const f = S.filter;
+    if (!f.q) return A.filterEvents(S.events, f, S.schema);
+    const ev = A.filterEvents(S.events, Object.assign({}, f, { q: '' }), S.schema);
+    return ev.filter((e) => {
+      const vals = Object.keys(e).filter((k) => k !== 'no' && k !== '_k').map((k) => e[k]);
+      const x = S.extras.get(e._k);
+      return A.matchesQ(f.q, x && x.values ? vals.concat(Object.values(x.values)) : vals);
+    });
+  }
   const filteredOutages = () => A.filterOutages(S.outages, S.filter);
   function resetFilter(doRender) {
     S.filter = emptyFilter();
     S.logStatus = '';
+    S.logHl = '';
     if (doRender !== false) render();
   }
   const isoLocal = (d) => {
@@ -236,8 +255,12 @@
 
   function syncControls() {
     const f = S.filter, sc = S.schema;
-    $('#f-from').value = f.from;
-    $('#f-to').value = f.to;
+    // From/To: date with optional time (empty time = start/end of the day)
+    $('#f-from').value = f.from.slice(0, 10);
+    $('#f-from-time').value = f.from && f.from.slice(11, 16) !== '00:00' ? f.from.slice(11, 16) : '';
+    $('#f-to').value = f.to.slice(0, 10);
+    $('#f-to-time').value = f.to && f.to.slice(11, 16) !== '23:59' ? f.to.slice(11, 16) : '';
+    $('#f-range').value = S.preset && f.from === S.preset.from && !f.to ? S.preset.key : '';
     // Field filters
     const box = $('#f-fields');
     box.replaceChildren(...(sc.fields || []).filter((x) => x.filter).map((x) => {
@@ -262,6 +285,7 @@
     if (dayVal === '_') opts.unshift(['_', 'Custom range']);
     fillSelect($('#tl-day'), 'Whole range', opts, dayVal);
     $('#tl-rows').value = S.lanes;
+    $('#log-hl').value = S.logHl;
     // State filter in the log
     const ls = $('#log-status');
     ls.hidden = !sc.state;
@@ -281,7 +305,7 @@
     for (const [k, v] of Object.entries(f.fields)) parts.push(`${label(k)} ${withNote(k, v)}`);
     if (f.q) parts.push(`Search «${f.q}»`);
     $('#filterinfo').textContent = parts.length ? `Filtered: ${parts.join(' · ')} → ${ev.length} of ${S.events.length} entries` : '';
-    $('#f-reset').hidden = !parts.length && !S.logStatus;
+    $('#f-reset').hidden = !parts.length && !S.logStatus && !S.logHl;
   }
 
   function renderKpis(ev, outs) {
@@ -521,20 +545,86 @@
     const t = f.filter((x) => x.table);
     return t.length ? t : f;
   }
+  /** Columns of the entries table after "Time": log fields and manual columns in the stored order. */
+  function tableColumns() {
+    const all = logColumns().map((def) => ({ name: def.name, def, manual: false }))
+      .concat(S.columns.map((def) => ({ name: def.name, def, manual: true })));
+    const pos = new Map((S.layout.order || []).map((n, i) => [n, i]));
+    // Columns not in the stored order (e.g. new ones) keep their default place at the end
+    return all.map((c, i) => [pos.has(c.name) ? pos.get(c.name) : 1000 + i, c]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+  }
+  async function saveOrder(order) {
+    S.layout = { order };
+    renderLog(filteredEvents());
+    try { S.layout = await api('PUT', `/api/t/${enc(S.type)}/layout`, { order }); } catch (e) { toast(e.message); }
+  }
+  /** Drag & drop of a column header onto another one. */
+  function makeDraggable(th, name, all) {
+    th.draggable = true;
+    th.title = (th.title ? th.title + ' · ' : '') + 'Drag to reorder';
+    th.addEventListener('dragstart', (e) => { e.dataTransfer.setData('application/x-logalyzer-col', name); e.dataTransfer.effectAllowed = 'move'; th.classList.add('dragging'); });
+    th.addEventListener('dragend', () => { th.classList.remove('dragging'); document.querySelectorAll('#tbl-log th').forEach((x) => x.classList.remove('drop-before', 'drop-after')); });
+    const side = (e) => { const r = th.getBoundingClientRect(); return e.clientX < r.left + r.width / 2 ? 'before' : 'after'; };
+    th.addEventListener('dragover', (e) => {
+      if (![...e.dataTransfer.types].includes('application/x-logalyzer-col')) return;
+      e.preventDefault();
+      const s = side(e);
+      th.classList.toggle('drop-before', s === 'before');
+      th.classList.toggle('drop-after', s === 'after');
+    });
+    th.addEventListener('dragleave', () => th.classList.remove('drop-before', 'drop-after'));
+    th.addEventListener('drop', (e) => {
+      const from = e.dataTransfer.getData('application/x-logalyzer-col');
+      if (!from) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const s = side(e);
+      th.classList.remove('drop-before', 'drop-after');
+      if (from === name) return;
+      const order = all.map((c) => c.name).filter((n) => n !== from);
+      order.splice(order.indexOf(name) + (s === 'after' ? 1 : 0), 0, from);
+      saveOrder(order);
+    });
+  }
+
   function renderLog(ev) {
     const sc = S.schema, st = sc.state;
-    const cols = logColumns();
+    const all = tableColumns();
     const tr0 = document.createElement('tr');
-    for (const l of ['Time'].concat(cols.map((c) => c.label || c.name))) { const th = document.createElement('th'); th.textContent = l; tr0.appendChild(th); }
+    const th0 = document.createElement('th'); th0.textContent = 'Time'; tr0.appendChild(th0);
+    for (const c of all) {
+      const th = document.createElement('th');
+      th.textContent = c.def.label || c.name;
+      if (c.manual) { th.className = 'extra-col'; th.title = 'Manual column – click a cell to edit'; }
+      makeDraggable(th, c.name, all);
+      tr0.appendChild(th);
+    }
     $('#tbl-log thead').replaceChildren(tr0);
-    const rows = ev.filter((e) => !S.logStatus || !st || String(e[st.field]) === S.logStatus).sort((a, b) => b.no - a.no);
+    const hlOf = (e) => (S.extras.get(e._k) || {}).highlight || '';
+    const rows = ev.filter((e) => (!S.logStatus || !st || String(e[st.field]) === S.logStatus) &&
+      (!S.logHl || (S.logHl === 'any' ? !!hlOf(e) : hlOf(e) === S.logHl))).sort((a, b) => b.no - a.no);
     $('#log-count').textContent = `${rows.length} of ${S.events.length} entries` + (rows.length > LOG_MAX ? ` (first ${LOG_MAX} shown)` : '');
     const tb = $('#tbl-log tbody');
-    if (!rows.length) { tb.replaceChildren(emptyRow(cols.length + 1, 'No entry matches these filters.')); return; }
+    if (!rows.length) { tb.replaceChildren(emptyRow(all.length + 1, 'No entry matches these filters.')); return; }
     tb.replaceChildren(...rows.slice(0, LOG_MAX).map((e) => {
       const tr = document.createElement('tr');
-      cell(tr, A.fmtTime(e.time) + ' ' + e.time.slice(0, 4) + (e.time.length > 16 ? e.time.slice(16) : ''), 'nw');
-      for (const c of cols) {
+      const hl = hlOf(e);
+      if (hl) tr.className = 'hl-' + hl;
+      const tc = cell(tr, A.fmtTime(e.time) + ' ' + e.time.slice(0, 4) + (e.time.length > 16 ? e.time.slice(16) : ''), 'nw');
+      if (e._k) {
+        const hb = document.createElement('button');
+        hb.type = 'button'; hb.className = 'hl-btn' + (hl ? ' hl-' + hl : '');
+        hb.title = hl ? `Highlighted (${hl}) – click to change` : 'Highlight row';
+        hb.setAttribute('aria-label', hb.title);
+        hb.addEventListener('click', (ev2) => { ev2.stopPropagation(); openHlMenu(hb, e); });
+        tc.prepend(hb);
+      }
+      for (const { def: c, manual } of all) {
+        if (manual) {
+          const td = cell(tr, ((S.extras.get(e._k) || {}).values || {})[c.name] || '', 'extra');
+          if (e._k) td.addEventListener('click', () => editExtra(td, e, c));
+          continue;
+        }
         const v = e[c.name];
         if (st && c.name === st.field) cell(tr, pill(String(v), CLS[A.classify(e, sc)]), 'nw');
         else if (c.type === 'number') cell(tr, v === '' ? '' : A.fmtNumber(v), 'num nw');
@@ -546,6 +636,107 @@
       }
       return tr;
     }));
+  }
+
+  // ---------- Highlights and manual columns (stored per entry on the server) ----------
+  async function patchEntry(e, patch) {
+    const x = await api('PATCH', `/api/t/${enc(S.type)}/entries/${enc(e._k)}`, patch);
+    if (x.highlight || Object.keys(x.values || {}).length) S.extras.set(e._k, x); else S.extras.delete(e._k);
+  }
+  /** After a change: the search covers manual columns, so re-filter everything only when searching. */
+  const refreshAfterExtras = () => (S.filter.q ? render() : renderLog(filteredEvents()));
+
+  let hlTarget = null;
+  function openHlMenu(btn, e) {
+    const m = $('#hl-menu');
+    hlTarget = e;
+    const r = btn.getBoundingClientRect();
+    m.hidden = false;
+    m.style.left = Math.min(r.left, window.innerWidth - m.offsetWidth - 8) + 'px';
+    m.style.top = (r.bottom + m.offsetHeight + 8 > window.innerHeight ? r.top - m.offsetHeight - 4 : r.bottom + 4) + 'px';
+    m.querySelector('button').focus();
+  }
+  async function pickHighlight(color) {
+    const e = hlTarget;
+    $('#hl-menu').hidden = true;
+    hlTarget = null;
+    if (!e) return;
+    try { await patchEntry(e, { highlight: color || null }); } catch (err) { toast(err.message); return; }
+    refreshAfterExtras();
+  }
+
+  function editExtra(td, e, c) {
+    if (td.querySelector('textarea')) return;
+    const old = ((S.extras.get(e._k) || {}).values || {})[c.name] || '';
+    const ta = document.createElement('textarea');
+    ta.rows = Math.min(6, Math.max(2, old.split('\n').length));
+    ta.value = old;
+    ta.placeholder = c.label || c.name;
+    td.replaceChildren(ta);
+    ta.focus();
+    let done = false;
+    const finish = async (save) => {
+      if (done) return;
+      done = true;
+      const val = ta.value.trim();
+      if (save && val !== old) {
+        try { await patchEntry(e, { values: { [c.name]: val } }); } catch (err) { toast(err.message); }
+      }
+      td.textContent = ((S.extras.get(e._k) || {}).values || {})[c.name] || '';
+      if (save && val !== old && S.filter.q) render();
+    };
+    ta.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); finish(true); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+    });
+    ta.addEventListener('blur', () => finish(true));
+  }
+
+  // Dialog for the manual columns
+  let colDraft = [];
+  function openColumns() {
+    colDraft = S.columns.map((c) => ({ name: c.name, label: c.label, saved: true }));
+    renderColumnsDialog();
+    $('#cols-errors').replaceChildren();
+    $('#dlg-columns').showModal();
+  }
+  function renderColumnsDialog() {
+    const tb = $('#cols-table tbody');
+    if (!colDraft.length) { tb.replaceChildren(emptyRow(3, 'No manual columns yet.')); return; }
+    tb.replaceChildren(...colDraft.map((c, i) => {
+      const tr = document.createElement('tr');
+      const lab = document.createElement('input'); lab.type = 'text'; lab.value = c.label; lab.placeholder = 'e.g. Comment';
+      const nm = document.createElement('input'); nm.type = 'text'; nm.value = c.name; nm.spellcheck = false;
+      nm.readOnly = c.saved;
+      nm.title = c.saved ? 'The internal name of a saved column cannot be changed' : 'Letters, digits and _';
+      lab.addEventListener('input', () => {
+        c.label = lab.value;
+        if (!c.saved && !c.nameTouched) { c.name = SC.slug(lab.value).replace(/^f_/, '') || ''; nm.value = c.name; }
+      });
+      nm.addEventListener('input', () => { c.name = nm.value.trim(); c.nameTouched = true; });
+      const rm = document.createElement('button'); rm.type = 'button'; rm.className = 'icon-btn'; rm.textContent = '✕'; rm.title = 'Remove column';
+      rm.addEventListener('click', () => { colDraft.splice(i, 1); renderColumnsDialog(); });
+      const up = document.createElement('button'); up.type = 'button'; up.className = 'icon-btn'; up.textContent = '↑'; up.title = 'Move up';
+      up.addEventListener('click', () => { if (i) { [colDraft[i - 1], colDraft[i]] = [colDraft[i], colDraft[i - 1]]; renderColumnsDialog(); } });
+      for (const el of [lab, nm]) { const td = document.createElement('td'); td.appendChild(el); tr.appendChild(td); }
+      const td = document.createElement('td'); td.className = 'nw'; td.append(up, rm); tr.appendChild(td);
+      return tr;
+    }));
+  }
+  async function saveColumns() {
+    const removed = S.columns.filter((c) => !colDraft.some((d) => d.name === c.name));
+    const filled = removed.filter((c) => [...S.extras.values()].some((x) => x.values && x.values[c.name]));
+    if (filled.length && !confirm(`Remove ${filled.map((c) => '«' + (c.label || c.name) + '»').join(', ')} including all values entered in it?`)) return;
+    try {
+      S.columns = await api('PUT', `/api/t/${enc(S.type)}/columns`, colDraft.map((c) => ({ name: c.name, label: c.label })));
+    } catch (e) {
+      const li = document.createElement('li'); li.textContent = e.message; $('#cols-errors').replaceChildren(li);
+      return;
+    }
+    if (removed.length) S.extras = new Map((await api('GET', `/api/t/${enc(S.type)}/extras`)).map((x) => [x.k, x]));
+    $('#dlg-columns').close();
+    render();
+    toast('Columns saved.');
   }
   function cell(tr, content, cls) {
     const td = document.createElement('td');
@@ -573,11 +764,12 @@
   }
 
   // ---------- Export (the server builds the CSV) ----------
-  function query(f, status) {
+  function query(f, status, highlight) {
     const p = new URLSearchParams();
     for (const k of ['from', 'to', 'q']) if (f[k]) p.set(k, f[k]);
     for (const [k, v] of Object.entries(f.fields || {})) if (v) p.set('f.' + k, v);
     if (status) p.set('status', status);
+    if (highlight) p.set('highlight', highlight);
     const s = p.toString();
     return s ? '?' + s : '';
   }
@@ -590,7 +782,7 @@
     if (!S.events.length) { toast('No data to export.'); return; }
     const base = `/api/t/${enc(S.type)}/export/`;
     if (kind === 'all') download(base + 'events.csv');
-    else if (kind === 'events') download(base + 'events.csv' + query(S.filter, S.logStatus));
+    else if (kind === 'events') download(base + 'events.csv' + query(S.filter, S.logStatus, S.logHl));
     else if (kind === 'outages') download(base + 'outages.csv' + query(S.filter));
   }
 
@@ -756,8 +948,33 @@
     document.addEventListener('click', () => { menu.hidden = true; menuBtn.setAttribute('aria-expanded', 'false'); });
     menu.querySelectorAll('[data-export]').forEach((b) => b.addEventListener('click', () => doExport(b.dataset.export)));
 
-    $('#f-from').addEventListener('change', (e) => { S.filter.from = e.target.value; render(); });
-    $('#f-to').addEventListener('change', (e) => { S.filter.to = e.target.value; render(); });
+    const readRange = () => {
+      const fd = $('#f-from').value, ft = $('#f-from-time').value, td = $('#f-to').value, tt = $('#f-to-time').value;
+      S.filter.from = fd ? fd + 'T' + (ft || '00:00') : '';
+      S.filter.to = td ? td + 'T' + (tt || '23:59') : '';
+      render();
+    };
+    for (const id of ['#f-from', '#f-from-time', '#f-to', '#f-to-time']) $(id).addEventListener('change', readRange);
+    $('#f-range').addEventListener('change', (e) => {
+      const hours = { '24h': 24, '7d': 7 * 24, '30d': 30 * 24 }[e.target.value];
+      if (!hours) { S.preset = null; S.filter.from = ''; S.filter.to = ''; render(); return; }
+      // Relative to now: from (now - period) open-ended
+      const from = isoLocal(new Date(Date.now() - hours * 3600000));
+      S.preset = { key: e.target.value, from };
+      S.filter.from = from;
+      S.filter.to = '';
+      render();
+      const ev = filteredEvents();
+      if (!ev.length && S.events.length) toast(`No entries in this period – the newest entry is from ${A.fmtTime(S.events[S.events.length - 1].time)} ${S.events[S.events.length - 1].time.slice(0, 4)}.`);
+    });
+    $('#home-link').addEventListener('click', (e) => {
+      e.preventDefault();
+      if (window.Editor && !window.Editor.canLeave()) return;
+      if (location.hash.startsWith('#/types')) location.hash = '#/t/' + (S.type || '');
+      else render();
+      window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    });
+    $('#cols-reset-order').addEventListener('click', () => { saveOrder([]); toast('Column order reset.'); });
     let qt;
     $('#f-search').addEventListener('input', (e) => { clearTimeout(qt); qt = setTimeout(() => { S.filter.q = e.target.value.trim(); render(); }, 180); });
     $('#f-reset').addEventListener('click', () => resetFilter());
@@ -769,6 +986,20 @@
     });
     $('#tl-rows').addEventListener('change', (e) => { S.lanes = e.target.value; render(); });
     $('#log-status').addEventListener('change', (e) => { S.logStatus = e.target.value; render(); });
+    $('#log-hl').addEventListener('change', (e) => { S.logHl = e.target.value; render(); });
+    $('#btn-columns').addEventListener('click', openColumns);
+    $('#cols-add').addEventListener('click', () => {
+      colDraft.push({ name: '', label: '', saved: false });
+      renderColumnsDialog();
+      const inputs = $('#cols-table tbody').querySelectorAll('input');
+      inputs[inputs.length - 2].focus();
+    });
+    $('#cols-save').addEventListener('click', saveColumns);
+    const hlMenu = $('#hl-menu');
+    hlMenu.querySelectorAll('[data-hl]').forEach((b) => b.addEventListener('click', (ev) => { ev.stopPropagation(); pickHighlight(b.dataset.hl); }));
+    document.addEventListener('click', (ev) => { if (!hlMenu.hidden && !hlMenu.contains(ev.target)) { hlMenu.hidden = true; hlTarget = null; } });
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !hlMenu.hidden) { hlMenu.hidden = true; hlTarget = null; } });
+    window.addEventListener('scroll', () => { hlMenu.hidden = true; }, true);
     $('#note-field').addEventListener('change', syncNoteDialog);
     $('#note-save').addEventListener('click', () => saveNote(false));
     $('#note-remove').addEventListener('click', () => saveNote(true));

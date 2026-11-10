@@ -13,6 +13,8 @@ const A = require('../../shared/analyze.js');
 const MongoBackend = require('./mongo.js');
 
 const DEFAULT_URL = 'mongodb://localhost:27017/logalyzer';
+const HIGHLIGHTS = ['yellow', 'red', 'green', 'blue'];
+const badRequest = (msg) => { const e = new Error(msg); e.status = 400; return e; };
 
 class Store {
   constructor(backend) {
@@ -92,6 +94,67 @@ class Store {
     return this.b.listNotes(type);
   }
 
+  // ---------- Manual columns and per-entry extras ----------
+  listColumns(type) { return this.b.listColumns(type); }
+  /** Replaces the manual columns [{ name, label }]; values of removed columns are deleted. */
+  async saveColumns(type, list) {
+    const schema = this.getType(type);
+    if (!Array.isArray(list)) throw badRequest('Expected a list of columns.');
+    const taken = new Set((schema.fields || []).map((f) => f.name).concat(['no', 'time', 'highlight']));
+    const cols = [], seen = new Set();
+    for (const c of list) {
+      const name = String((c && c.name) || '').trim(), label = String((c && c.label) || '').trim() || name;
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,40}$/.test(name)) throw badRequest(`Column name «${name}»: only letters, digits and _ (must not start with a digit).`);
+      if (taken.has(name)) throw badRequest(`Column name «${name}» is already used by the log type.`);
+      if (seen.has(name)) throw badRequest(`Column name «${name}» is used twice.`);
+      if (label.length > 60) throw badRequest(`Column label «${label}» is too long (max. 60 characters).`);
+      seen.add(name);
+      cols.push({ name, label });
+    }
+    if (cols.length > 20) throw badRequest('At most 20 manual columns.');
+    await this.b.saveColumns(type, cols);
+    return this.b.listColumns(type);
+  }
+  listExtras(type) { return this.b.listExtras(type); }
+
+  /** Column order of the entries table: { order: [field or manual column names] }; unknown names are dropped. */
+  getLayout(type) { return this.b.getView(type); }
+  async saveLayout(type, b) {
+    const schema = this.getType(type);
+    const order = Array.isArray(b && b.order) ? b.order.map(String) : null;
+    if (!order) throw badRequest('Expected { order: [column names] }.');
+    const known = new Set((schema.fields || []).map((f) => f.name).concat((await this.b.listColumns(type)).map((c) => c.name)));
+    const clean = [...new Set(order)].filter((n) => known.has(n) && n !== 'time');
+    await this.b.saveView(type, { order: clean });
+    return { order: clean };
+  }
+  /**
+   * Changes the extras of one entry: { highlight?: colour|null, values?: { column: text } }.
+   * Only the given parts change; an empty text removes the value. -> { k, highlight, values }
+   */
+  async setExtra(type, k, patch) {
+    if (!(await this.b.hasEvent(type, k))) { const e = new Error('Unknown entry.'); e.status = 404; throw e; }
+    patch = patch || {};
+    const cur = (await this.b.getExtra(type, k)) || { k, highlight: null, values: {} };
+    const x = { k, highlight: cur.highlight || null, values: Object.assign({}, cur.values) };
+    if ('highlight' in patch) {
+      if (patch.highlight != null && patch.highlight !== '' && !HIGHLIGHTS.includes(patch.highlight)) throw badRequest(`Highlight must be one of ${HIGHLIGHTS.join(', ')}.`);
+      x.highlight = patch.highlight || null;
+    }
+    if (patch.values) {
+      const cols = new Set((await this.b.listColumns(type)).map((c) => c.name));
+      for (const [name, v] of Object.entries(patch.values)) {
+        if (!cols.has(name)) throw badRequest(`Unknown column «${name}».`);
+        const t = v == null ? '' : String(v).trim();
+        if (t.length > 2000) throw badRequest('The text is too long (max. 2000 characters).');
+        if (t) x.values[name] = t; else delete x.values[name];
+      }
+    }
+    x.at = new Date().toISOString();
+    await this.b.saveExtra(type, x);
+    return x;
+  }
+
   /** Duplicate check without storing: { new, existing }. */
   async checkDuplicates(type, res) {
     const existing = await this.b.countExisting(type, res.events);
@@ -112,4 +175,4 @@ function createStore(env, opts) {
   return new Store(new MongoBackend(env.MONGO_URL || DEFAULT_URL, env.MONGO_DB, opts));
 }
 
-module.exports = { Store, createStore, DEFAULT_URL };
+module.exports = { Store, createStore, DEFAULT_URL, HIGHLIGHTS };

@@ -320,23 +320,29 @@
     const hay = values.join(' ').toLowerCase();
     return String(q).toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
   }
-  const vals = (e) => Object.keys(e).filter((k) => k !== 'no').map((k) => e[k]);
+  // "no" (row number) and "_k" (entry id from the store) are not field values
+  const META = new Set(['no', '_k']);
+  const vals = (e) => Object.keys(e).filter((k) => !META.has(k)).map((k) => e[k]);
   function matchesFields(e, ff) {
     for (const k in ff || {}) if (ff[k] !== '' && ff[k] != null && String(e[k]) !== String(ff[k])) return false;
     return true;
   }
+  /** "to" without seconds includes the whole minute (…T23:59 also matches …T23:59:30). */
+  const upper = (to) => (to && to.length === 16 ? to + ':59' : to);
   function filterEvents(events, f, schema) {
     f = f || {};
     const st = schema && schema.state;
+    const to = upper(f.to);
     return events.filter((e) =>
-      (!f.from || e.time >= f.from) && (!f.to || e.time <= f.to) &&
+      (!f.from || e.time >= f.from) && (!to || e.time <= to) &&
       (!f.status || !st || String(e[st.field]) === f.status) &&
       matchesFields(e, f.fields) && matchesQ(f.q, vals(e)));
   }
   function filterOutages(outs, f) {
     f = f || {};
+    const to = upper(f.to);
     return outs.filter((a) =>
-      (!f.to || a.start <= f.to) && (!f.from || !a.end || a.end >= f.from) &&
+      (!to || a.start <= to) && (!f.from || !a.end || a.end >= f.from) &&
       matchesFields(a.event, f.fields) && matchesQ(f.q, [a.object].concat(vals(a.event))));
   }
 
@@ -347,8 +353,8 @@
     list.forEach((e, i) => { e.no = i + 1; delete e._ord; });
     return list;
   }
-  /** Duplicate key: all values except "no". */
-  function eventKey(e) { return Object.keys(e).filter((k) => k !== 'no').sort().map((k) => k + '=' + e[k]).join('\u001f'); }
+  /** Duplicate key: all field values (without "no" and "_k"). */
+  function eventKey(e) { return Object.keys(e).filter((k) => !META.has(k)).sort().map((k) => k + '=' + e[k]).join('\u001f'); }
   function merge(existing, incoming) {
     const have = new Map();
     existing.forEach((e) => { const k = eventKey(e); have.set(k, (have.get(k) || 0) + 1); });
@@ -367,7 +373,7 @@
 
   const api = {
     classify, sortEvents, outages, outageRows, outageColumns, metrics, perDay, perHour, topValues, findings, findingKey,
-    minutes, toDate, addMinutes, utcMs, fmtDuration, fmtTime, fmtDay, fmtNumber, filterEvents, filterOutages, renumber, merge, eventKey
+    minutes, toDate, addMinutes, utcMs, fmtDuration, fmtTime, fmtDay, fmtNumber, filterEvents, filterOutages, renumber, merge, eventKey, matchesQ
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Analyze = api;

@@ -4,12 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Logalyzer</title>
+<link rel="icon" type="image/png" href="img/logo.png">
+<link rel="apple-touch-icon" href="img/logo.png">
+<meta name="theme-color" content="#C44F51">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
 <header class="topbar">
   <div class="brand">
-    <h1>Logalyzer</h1>
+    <h1><a href="#/" id="home-link" class="home-link" title="Back to the log view"><img src="img/logo.png" alt="" class="logo" width="28" height="28">Logalyzer</a></h1>
     <select id="type" class="type-select" aria-label="Log type"></select>
     <span class="brand-sub" id="sources-info"></span>
   </div>
@@ -41,8 +44,20 @@
 
     <div id="content" hidden>
       <section class="filterbar" aria-label="Filter">
-        <div class="field"><label for="f-from">From</label><input type="datetime-local" id="f-from"></div>
-        <div class="field"><label for="f-to">To</label><input type="datetime-local" id="f-to"></div>
+        <div class="field"><label for="f-range">Range</label>
+          <select id="f-range">
+            <option value="">All / custom</option>
+            <option value="24h">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+          </select>
+        </div>
+        <div class="field"><label for="f-from">From</label>
+          <div class="dt"><input type="date" id="f-from"><input type="time" id="f-from-time" aria-label="From time (optional)" title="Optional – empty = start of the day"></div>
+        </div>
+        <div class="field"><label for="f-to">To</label>
+          <div class="dt"><input type="date" id="f-to"><input type="time" id="f-to-time" aria-label="To time (optional)" title="Optional – empty = end of the day"></div>
+        </div>
         <div class="filterbar-fields" id="f-fields"></div>
         <div class="field grow"><label for="f-search">Search</label><input type="search" id="f-search" placeholder="Text in all fields …"></div>
         <button class="btn ghost" id="f-reset" type="button">Reset filters</button>
@@ -95,6 +110,15 @@
           <h2>Entries</h2>
           <div class="card-tools">
             <select id="log-status" aria-label="State"></select>
+            <select id="log-hl" aria-label="Highlighted rows">
+              <option value="">All rows</option>
+              <option value="any">Highlighted rows</option>
+              <option value="yellow">Yellow</option>
+              <option value="red">Red</option>
+              <option value="green">Green</option>
+              <option value="blue">Blue</option>
+            </select>
+            <button class="btn" id="btn-columns" type="button" title="Add your own text columns">Columns …</button>
             <span class="count" id="log-count"></span>
           </div>
         </div>
@@ -273,6 +297,34 @@
     </div>
   </form>
 </dialog>
+
+<dialog id="dlg-columns">
+  <form method="dialog" class="dlg">
+    <h2>Manual columns</h2>
+    <p class="hint">Your own text columns for this log type, e.g. «Comment» or «Ticket». Fill them in per entry by clicking the cell in the entries table. They are stored apart from the log entries: the analysis ignores them, search and CSV export include them. Removing a column deletes its values.</p>
+    <div class="tablewrap"><table class="tbl ed-fields" id="cols-table">
+      <thead><tr><th>Label</th><th>Name (internal)</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <div><button class="btn" id="cols-add" type="button">Add column</button></div>
+    <p class="hint">The order of all columns in the entries table can be changed by dragging the column headers.</p>
+    <ul class="ed-errors" id="cols-errors"></ul>
+    <div class="dlg-actions">
+      <button class="btn ghost" id="cols-reset-order" type="button">Reset column order</button>
+      <span class="spacer"></span>
+      <button class="btn ghost" value="cancel" type="submit">Cancel</button>
+      <button class="btn primary" id="cols-save" type="button">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="menu-list hl-menu" id="hl-menu" role="menu" hidden>
+  <button type="button" data-hl="yellow"><i class="sw hl-sw-yellow"></i>Yellow</button>
+  <button type="button" data-hl="red"><i class="sw hl-sw-red"></i>Red</button>
+  <button type="button" data-hl="green"><i class="sw hl-sw-green"></i>Green</button>
+  <button type="button" data-hl="blue"><i class="sw hl-sw-blue"></i>Blue</button>
+  <button type="button" data-hl=""><i class="sw hl-sw-none"></i>No highlight</button>
+</div>
 
 <div class="toast" id="toast" role="status" hidden></div>
 

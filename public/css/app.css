@@ -6,8 +6,10 @@
   --muted: #5b6875;
   --line: #dde3e9;
   --stripe: #f3f6f9;
-  --accent: #1d5fa8;
-  --accent-soft: #e3edf8;
+  --primary: #C44F51;        /* brand colour: primary buttons, logo */
+  --accent: #C44F51;         /* active elements, links, focus */
+  --accent-soft: #f7e5e5;
+  --chart: #1d5fa8;          /* chart bars stay blue, so they cannot be confused with the red for "down" */
   --bad: #c2362b;
   --ok: #2b8a4b;
   --warn: #b77612;
@@ -25,8 +27,9 @@
     --muted: #93a1ae;
     --line: #2a343e;
     --stripe: #1a222a;
-    --accent: #6aa8ec;
-    --accent-soft: #1b2e44;
+    --accent: #e07a7c;       /* lighter for contrast on the dark background */
+    --accent-soft: #3a2224;
+    --chart: #6aa8ec;
     --bad: #f0675b;
     --ok: #5cc27d;
     --warn: #e0a440;
@@ -48,8 +51,8 @@ code { font-family: var(--mono); font-size: 0.92em; background: var(--stripe); p
   padding: 10px max(16px, 3vw);
   background: var(--panel); border-bottom: 1px solid var(--line);
 }
-.brand { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
-.brand h1 { font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.brand h1 { font-size: 18px; font-weight: 650; letter-spacing: -0.01em; line-height: 1; display: flex; }
 .brand-sub { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
@@ -58,7 +61,7 @@ code { font-family: var(--mono); font-size: 0.92em; background: var(--stripe); p
   border: 1px solid var(--line); background: var(--panel); color: var(--fg); display: inline-flex; align-items: center;
 }
 .btn:hover { border-color: var(--muted); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 .btn.primary:hover { filter: brightness(1.08); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { color: var(--fg); border-color: var(--line); }
@@ -159,13 +162,13 @@ main { padding: 16px max(16px, 3vw) 48px; display: flex; flex-direction: column;
 .chart .outage { fill: color-mix(in srgb, var(--bad) 28%, transparent); stroke: var(--bad); stroke-width: 1; }
 .chart .outage.open { stroke-dasharray: 4 3; }
 .chart .dot { stroke: var(--panel); stroke-width: 1; }
-.chart .bar { fill: var(--accent); }
+.chart .bar { fill: var(--chart); }
 .chart .bar-bad { fill: var(--bad); }
 .chart .hit { fill: transparent; }
 .chart .clickable { cursor: pointer; }
 .chart g.clickable:hover .bar { filter: brightness(1.12); }
 .chart text.clickable:hover { text-decoration: underline; }
-.chart .brush { fill: color-mix(in srgb, var(--accent) 18%, transparent); stroke: var(--accent); }
+.chart .brush { fill: color-mix(in srgb, var(--chart) 18%, transparent); stroke: var(--chart); }
 #ch-timeline svg { cursor: crosshair; }
 .empty { color: var(--muted); font-size: 13px; margin: 0; padding: 24px 0; }
 .tip {
@@ -218,6 +221,54 @@ dialog::backdrop { background: rgb(10 16 22 / 0.45); }
 #dlg-note { width: min(520px, calc(100vw - 32px)); }
 .note-value { font-family: var(--mono); font-size: 12px; padding: 5px 8px; background: var(--stripe); border-radius: 6px; overflow-wrap: anywhere; }
 #note-text { width: 100%; }
+
+/* Highlighted rows */
+:root { --hl-yellow: #e0b000; --hl-red: var(--bad); --hl-green: var(--ok); --hl-blue: #2f6fbf; }
+.tbl tr.hl-yellow td { background: color-mix(in srgb, var(--hl-yellow) 16%, transparent); }
+.tbl tr.hl-red td { background: color-mix(in srgb, var(--hl-red) 14%, transparent); }
+.tbl tr.hl-green td { background: color-mix(in srgb, var(--hl-green) 14%, transparent); }
+.tbl tr.hl-blue td { background: color-mix(in srgb, var(--hl-blue) 14%, transparent); }
+.tbl tr.hl-yellow td:first-child { box-shadow: inset 3px 0 var(--hl-yellow); }
+.tbl tr.hl-red td:first-child { box-shadow: inset 3px 0 var(--hl-red); }
+.tbl tr.hl-green td:first-child { box-shadow: inset 3px 0 var(--hl-green); }
+.tbl tr.hl-blue td:first-child { box-shadow: inset 3px 0 var(--hl-blue); }
+.hl-sw-yellow { background: var(--hl-yellow); } .hl-sw-red { background: var(--hl-red); }
+.hl-sw-green { background: var(--hl-green); } .hl-sw-blue { background: var(--hl-blue); }
+.hl-sw-none { border: 1px solid var(--muted); }
+.hl-btn {
+  width: 14px; height: 14px; padding: 0; margin-right: 8px; vertical-align: -2px; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel);
+}
+.hl-btn:hover { border-color: var(--muted); }
+.hl-btn.hl-yellow { background: var(--hl-yellow); border-color: var(--hl-yellow); }
+.hl-btn.hl-red { background: var(--hl-red); border-color: var(--hl-red); }
+.hl-btn.hl-green { background: var(--hl-green); border-color: var(--hl-green); }
+.hl-btn.hl-blue { background: var(--hl-blue); border-color: var(--hl-blue); }
+.hl-menu { position: fixed; right: auto; top: 0; min-width: 160px; }
+.hl-menu button { display: flex; align-items: center; }
+
+/* Home link, date range */
+.home-link { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+.home-link .logo { width: 28px; height: 28px; border-radius: 6px; flex: none; }
+.home-link:hover { color: var(--accent); }
+.dt { display: flex; gap: 4px; }
+.dt input[type=time] { width: 92px; }
+.dt input[type=time]:placeholder-shown, .dt input[type=time]:invalid { color: var(--muted); }
+
+/* Column order: drag the headers of the entries table */
+#tbl-log th[draggable=true] { cursor: grab; }
+#tbl-log th.dragging { opacity: 0.4; }
+#tbl-log th.drop-before { box-shadow: inset 3px 0 var(--accent); }
+#tbl-log th.drop-after { box-shadow: inset -3px 0 var(--accent); }
+
+/* Manual columns */
+.tbl th.extra-col { color: var(--accent); }
+.tbl td.extra { min-width: 160px; max-width: 360px; white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
+.tbl td.extra:empty::after { content: "+"; color: var(--muted); opacity: 0; }
+.tbl tr:hover td.extra:empty::after { opacity: 0.7; }
+.tbl td.extra textarea { width: 100%; min-width: 200px; font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--accent); border-radius: 5px; background: var(--panel); color: var(--fg); resize: vertical; }
+#dlg-columns { width: min(620px, calc(100vw - 32px)); }
+#cols-table input[readonly] { color: var(--muted); background: var(--stripe); }
 
 /* Notes on values */
 .annot { color: var(--accent); }

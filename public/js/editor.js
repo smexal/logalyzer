@@ -458,5 +458,11 @@
   }
 
   wire();
-  window.Editor = { open: (id) => open(id || 'new'), dropFile };
+  /** For navigation away from the editor (e.g. the home link): asks about unsaved changes. */
+  function canLeave() {
+    if ($('#editor').hidden || !confirmLeave()) return $('#editor').hidden;
+    dirty = false;
+    return true;
+  }
+  window.Editor = { open: (id) => open(id || 'new'), dropFile, canLeave };
 })();
